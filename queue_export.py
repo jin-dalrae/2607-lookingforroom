@@ -20,7 +20,7 @@ from listing_dates import format_timestamp_label, posted_label, resolve_posted_a
 from map_coords import resolve_listing_coords
 from locations import listing_location_context, resolve_listing_place
 from match import listing_matches_criteria
-from rank import _size_from_flags
+from listing_size import extract_sqft_from_post, sqft_sort_value
 from send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).parent / "site" / "data.json"
@@ -59,23 +59,6 @@ def _transit_tag(flags_json: str | None, reasoning: str) -> str | None:
     if "≤10 min" in blob:
         return blob.split(";")[0].strip()[:40]
     return None
-
-
-def _sqft_fields(flags_json: str | None) -> dict[str, Any]:
-    sqft, size_tier, meets_150 = _size_from_flags(flags_json)
-    label: str | None
-    if sqft is not None:
-        label = str(sqft)
-    elif size_tier == "large":
-        label = "Large"
-    else:
-        label = None
-    return {
-        "sqft": sqft,
-        "sqftLabel": label,
-        "sizeTier": size_tier,
-        "meets150Sqft": meets_150,
-    }
 
 
 def _move_in_tag(flags_json: str | None) -> str | None:
@@ -125,7 +108,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     loc = listing_location_context(row)
     rental_address = place.get("rental_address") or loc.get("rental_location") or ""
     display_neighborhood = place.get("display_place") or row.get("neighborhood") or "Unknown"
-    size = _sqft_fields(row.get("flags_json"))
+    sqft_label = extract_sqft_from_post(row)
 
     stored_posted = row.get("posted_at")
     posted_at = resolve_posted_at(row)
@@ -144,10 +127,8 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "id": listing_id,
         "title": row.get("title") or "Untitled",
         "price": row.get("price"),
-        "sqft": size["sqft"],
-        "sqftLabel": size["sqftLabel"],
-        "sizeTier": size["sizeTier"],
-        "meets150Sqft": size["meets150Sqft"],
+        "sqftLabel": sqft_label,
+        "sqftSort": sqft_sort_value(sqft_label),
         "neighborhood": display_neighborhood,
         "rentalAddress": rental_address,
         "city": place.get("city") or "",

@@ -256,8 +256,7 @@ function sortValue(item, key) {
     case "price":
       return Number.isFinite(Number(item.price)) ? Number(item.price) : 99999;
     case "sqft":
-      if (Number.isFinite(Number(item.sqft))) return Number(item.sqft);
-      if (item.sizeTier === "large") return 200;
+      if (Number.isFinite(Number(item.sqftSort))) return Number(item.sqftSort);
       return -1;
     case "liked":
       return item.liked ? 1 : 0;
@@ -295,15 +294,7 @@ function sortedFilteredItems() {
 }
 
 function sqftCell(item) {
-  if (Number.isFinite(Number(item.sqft))) {
-    const n = Number(item.sqft);
-    const cls = n < 100 ? "sqft-small" : item.meets150Sqft ? "sqft-good" : "";
-    return `<span class="${cls}">${esc(String(n))}</span>`;
-  }
-  if (item.sqftLabel === "Large") {
-    return '<span class="sqft-tier">Large</span>';
-  }
-  return "—";
+  return item.sqftLabel ? esc(item.sqftLabel) : "—";
 }
 
 function subLines(item) {
