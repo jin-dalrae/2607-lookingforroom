@@ -163,6 +163,7 @@ LOCATION_EXCLUDE = {
         "pittsburg",
         "pittsburgh",
         "antioch",
+        "castro valley",
         "vallejo",
         "benicia",
         "el sobrante",

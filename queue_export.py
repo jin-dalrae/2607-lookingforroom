@@ -17,6 +17,7 @@ from db import (
     init_db,
 )
 from listing_dates import format_timestamp_label, resolve_posted_at
+from locations import listing_location_context, resolve_listing_place
 from match import listing_matches_criteria
 from send_mail import extract_listing_email
 
@@ -103,12 +104,20 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     posted_at = resolve_posted_at(row)
     scraped_at = row.get("last_seen")
     skipped_at = app.get("updated_at") if app and app_status == "skipped" else None
+    place = resolve_listing_place(row)
+    loc = listing_location_context(row)
+    rental_address = place.get("rental_address") or loc.get("rental_location") or ""
+    display_neighborhood = place.get("display_place") or row.get("neighborhood") or "Unknown"
 
     return {
         "id": listing_id,
         "title": row.get("title") or "Untitled",
         "price": row.get("price"),
-        "neighborhood": row.get("neighborhood") or "Unknown",
+        "neighborhood": display_neighborhood,
+        "rentalAddress": rental_address,
+        "city": place.get("city") or "",
+        "state": place.get("state") or "",
+        "zip": place.get("zip") or "",
         "url": url,
         "source": row.get("source") or "craigslist",
         "channel": channel,
@@ -162,6 +171,9 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
 
 
 def write_queue_data(path=None) -> __import__("pathlib").Path:
+    from db import backfill_rental_addresses
+
+    backfill_rental_addresses()
     target = path or OUTPUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = build_queue_payload()

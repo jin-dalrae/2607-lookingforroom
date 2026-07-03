@@ -124,7 +124,14 @@ function filteredListings() {
       if (!Number.isFinite(price) || price > maxPrice) return false;
     }
     if (query) {
-      const haystack = `${item.title || ""} ${item.neighborhood || ""}`.toLowerCase();
+      const haystack = [
+        item.title,
+        item.neighborhood,
+        item.rentalAddress,
+        item.city,
+        item.state,
+        item.zip,
+      ].filter(Boolean).join(" ").toLowerCase();
       if (!haystack.includes(query)) return false;
     }
     return true;
@@ -149,6 +156,9 @@ function renderCard(item, index) {
   const [label, labelClass] = statusLabel(item);
   const price = item.price ? `$${item.price}/mo` : "N/A";
   const badge = item.isFacebook ? " 📘" : "";
+  const addressLine = item.rentalAddress
+    ? `<p class="address">${esc(item.rentalAddress)}</p>`
+    : "";
   const tags = [];
   if (item.isMatch) tags.push('<span class="tag match">Move-in OK</span>');
   if (item.transitTag) tags.push(`<span class="tag transit">${esc(item.transitTag)}</span>`);
@@ -161,6 +171,7 @@ function renderCard(item, index) {
         <div style="flex:1">
           <h2>${esc(item.title)}${badge}</h2>
           <p class="meta">${esc(price)} · ${esc(item.neighborhood)}</p>
+          ${addressLine}
           <p class="timestamps">Posted ${esc(timeLabel(item.postedLabel))} · Scraped ${esc(timeLabel(item.scrapedLabel))}</p>
           <div class="tags">${tags.join("")}</div>
         </div>

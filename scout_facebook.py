@@ -209,7 +209,11 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
             title = "Facebook Marketplace listing"
 
     from listing_dates import parse_posted_at
-    from locations import clean_listing_description, resolve_neighborhood_from_text
+    from locations import (
+        clean_listing_description,
+        parse_facebook_listing_fields,
+        resolve_neighborhood_from_text,
+    )
 
     body_text = description
     if not body_text:
@@ -222,10 +226,12 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
     raw_description = description or body_text[:4000] or None
     description = clean_listing_description(raw_description)
 
+    fb_fields = parse_facebook_listing_fields(raw_description or "")
+    rental_address = fb_fields.get("rental_address") or ""
     neighborhood = resolve_neighborhood_from_text(
         title=title,
         description=raw_description or "",
-        fallback="Facebook Marketplace",
+        fallback=fb_fields.get("display_place") or "Facebook Marketplace",
     )
 
     if _is_junk_title(title):
@@ -239,6 +245,7 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         "title": title[:200],
         "price": price,
         "neighborhood": neighborhood,
+        "rental_address": rental_address or None,
         "description": description,
         "posted_at": posted_at,
     }
@@ -258,6 +265,7 @@ def _merge_card_and_details(card: FacebookCard, details: dict[str, Any]) -> dict
         "neighborhood": details.get("neighborhood") or card.neighborhood,
         "description": details.get("description"),
         "posted_at": details.get("posted_at"),
+        "rental_address": details.get("rental_address"),
     }
 
 
@@ -270,6 +278,11 @@ def _needs_detail_fetch(card: FacebookCard) -> bool:
     if _is_junk_title(title):
         return True
     if len(description) < 40:
+        return True
+    if not (existing.get("rental_address") or "").strip():
+        return True
+    hood = (existing.get("neighborhood") or "").lower()
+    if hood.startswith("facebook") or "marketplace" in hood:
         return True
     return False
 
@@ -300,6 +313,7 @@ def ingest_url(url: str, *, headless: bool = True) -> dict[str, Any]:
         neighborhood=details["neighborhood"],
         description=details["description"],
         posted_at=details.get("posted_at"),
+        rental_address=details.get("rental_address"),
         source="facebook",
     )
     details["outcome"] = outcome
@@ -353,6 +367,7 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                             neighborhood=merged["neighborhood"],
                             description=merged["description"],
                             posted_at=merged.get("posted_at"),
+                            rental_address=merged.get("rental_address"),
                             source="facebook",
                         )
                     else:

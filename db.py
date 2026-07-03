@@ -152,6 +152,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE listings ADD COLUMN move_in_date TEXT")
         if "posted_at" not in cols:
             conn.execute("ALTER TABLE listings ADD COLUMN posted_at TEXT")
+        if "rental_address" not in cols:
+            conn.execute("ALTER TABLE listings ADD COLUMN rental_address TEXT")
 
         _migrate_scores_table(conn)
         _init_applications_table(conn)
@@ -187,6 +189,7 @@ def upsert_listing(
     description: str | None = None,
     move_in_date: str | None = None,
     posted_at: str | None = None,
+    rental_address: str | None = None,
     source: str = "craigslist",
 ) -> str:
     """
@@ -203,8 +206,8 @@ def upsert_listing(
                 """
                 INSERT INTO listings (
                     id, url, title, price, neighborhood, description,
-                    move_in_date, posted_at, first_seen, last_seen, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    move_in_date, posted_at, rental_address, first_seen, last_seen, source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     listing_id,
@@ -215,6 +218,7 @@ def upsert_listing(
                     description,
                     move_in_date,
                     posted_at,
+                    rental_address,
                     now,
                     now,
                     source,
@@ -252,6 +256,9 @@ def upsert_listing(
             changed = True
         if posted_at is not None and posted_at != existing["posted_at"]:
             updates["posted_at"] = posted_at
+            changed = True
+        if rental_address is not None and rental_address != existing["rental_address"]:
+            updates["rental_address"] = rental_address
             changed = True
 
         set_clause = ", ".join(f"{col} = ?" for col in updates)
@@ -459,7 +466,7 @@ def get_pool_listings(
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
-                l.posted_at, l.first_seen, l.last_seen,
+                l.posted_at, l.rental_address, l.first_seen, l.last_seen,
                 s.score, s.is_private_room, s.is_scam_likely,
                 s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
             FROM listings l
@@ -503,6 +510,63 @@ def get_pool_listings(
     return sort_matches(results)[:limit]
 
 
+def backfill_rental_addresses(*, limit: int | None = None) -> int:
+    """Parse rental_address/neighborhood from stored descriptions. Returns rows updated."""
+    from locations import parse_facebook_listing_fields, resolve_neighborhood_from_text
+
+    init_db()
+    with get_connection() as conn:
+        query = """
+            SELECT id, title, description, neighborhood, rental_address, source
+            FROM listings
+            WHERE description IS NOT NULL AND trim(description) != ''
+        """
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (limit,)
+        rows = conn.execute(query, params).fetchall()
+
+    updated = 0
+    for row in rows:
+        listing = dict(row)
+        fields = parse_facebook_listing_fields(listing.get("description") or "")
+        rental_address = (fields.get("rental_address") or "").strip()
+        if not rental_address:
+            continue
+
+        neighborhood = listing.get("neighborhood") or ""
+        hood_low = neighborhood.lower()
+        if (
+            not neighborhood
+            or hood_low.startswith("facebook")
+            or "marketplace" in hood_low
+        ):
+            neighborhood = resolve_neighborhood_from_text(
+                title=str(listing.get("title") or ""),
+                description=str(listing.get("description") or ""),
+                fallback=fields.get("display_place") or neighborhood or "Unknown",
+            )
+
+        existing_address = (listing.get("rental_address") or "").strip()
+        existing_hood = (listing.get("neighborhood") or "").strip()
+        if rental_address == existing_address and neighborhood == existing_hood:
+            continue
+
+        with get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE listings
+                SET rental_address = ?, neighborhood = ?
+                WHERE id = ?
+                """,
+                (rental_address, neighborhood, listing["id"]),
+            )
+            conn.commit()
+        updated += 1
+    return updated
+
+
 def get_listings_with_queue_applications(
     *,
     statuses: tuple[str, ...] = ("skipped", "sent", "replied", "toured", "draft"),
@@ -517,7 +581,7 @@ def get_listings_with_queue_applications(
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
-                l.posted_at, l.first_seen, l.last_seen,
+                l.posted_at, l.rental_address, l.first_seen, l.last_seen,
                 s.score, s.is_private_room, s.is_scam_likely,
                 s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
             FROM applications a

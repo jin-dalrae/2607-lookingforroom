@@ -12,6 +12,7 @@ FAR_EAST_BAY_EXCLUDE = (
     "pittsburg",
     "pittsburgh",
     "antioch",
+    "castro valley",
     "vallejo",
     "benicia",
     "fairfield",
@@ -51,6 +52,14 @@ _RENTAL_LOCATION_RE = re.compile(
 )
 _LISTED_ADDRESS_RE = re.compile(
     r"\n([0-9][^\n]{8,80},\s*(?:ca|california)\b[^\n]*)",
+    re.IGNORECASE,
+)
+_FB_RENTALS_LINE_RE = re.compile(
+    r"rentals\s*\n\s*([^\n]+)",
+    re.IGNORECASE,
+)
+_CITY_STATE_ZIP_RE = re.compile(
+    r"^(.+?),\s*([A-Z]{2})(?:,\s*(\d{5}))?$",
     re.IGNORECASE,
 )
 
@@ -121,6 +130,20 @@ def strip_facebook_page_junk(text: str) -> str:
     return trimmed
 
 
+def parse_city_state_zip(location: str) -> tuple[str, str, str]:
+    """Split 'Castro Valley, CA, 94546' into city/state/zip."""
+    raw = (location or "").strip()
+    if not raw:
+        return "", "", ""
+    match = _CITY_STATE_ZIP_RE.match(raw)
+    if match:
+        return match.group(1).strip(), match.group(2).upper(), (match.group(3) or "").strip()
+    if "," in raw:
+        city, rest = raw.split(",", 1)
+        return city.strip(), rest.strip(), ""
+    return raw, "", ""
+
+
 def extract_rental_location(text: str) -> str:
     """Parse Facebook 'Rental Location' or a street address line when present."""
     if not text:
@@ -131,19 +154,78 @@ def extract_rental_location(text: str) -> str:
     addr = _LISTED_ADDRESS_RE.search(text)
     if addr:
         return addr.group(1).strip()
+    rentals = _FB_RENTALS_LINE_RE.search(text)
+    if rentals:
+        return rentals.group(1).strip()
     return ""
+
+
+def parse_facebook_listing_fields(text: str) -> dict[str, str]:
+    """Extract structured location fields from a Marketplace listing page."""
+    raw = text or ""
+    cleaned = strip_facebook_page_junk(raw)
+    rental_location = extract_rental_location(raw) or extract_rental_location(cleaned)
+
+    street_address = ""
+    rentals = _FB_RENTALS_LINE_RE.search(raw) or _FB_RENTALS_LINE_RE.search(cleaned)
+    if rentals:
+        street_address = rentals.group(1).strip()
+
+    city, state, zip_code = parse_city_state_zip(rental_location)
+    if not city and street_address:
+        city, state, zip_code = parse_city_state_zip(street_address)
+
+    rental_address = rental_location or street_address
+    display_place = ""
+    if city and state:
+        display_place = f"{city}, {state}"
+    elif city:
+        display_place = city
+
+    return {
+        "rental_address": rental_address,
+        "street_address": street_address,
+        "city": city,
+        "state": state,
+        "zip": zip_code,
+        "display_place": display_place,
+    }
+
+
+def resolve_listing_place(row: dict[str, Any]) -> dict[str, str]:
+    """Return stored or parsed location fields for any listing."""
+    stored_address = str(row.get("rental_address") or "").strip()
+    raw_description = str(row.get("description") or "")
+    parsed = parse_facebook_listing_fields(raw_description)
+    if stored_address:
+        city, state, zip_code = parse_city_state_zip(stored_address)
+        if not city:
+            city = parsed.get("city", "")
+            state = parsed.get("state", "")
+            zip_code = parsed.get("zip", "")
+        display_place = f"{city}, {state}" if city and state else (city or stored_address)
+        return {
+            "rental_address": stored_address,
+            "street_address": parsed.get("street_address", ""),
+            "city": city,
+            "state": state,
+            "zip": zip_code,
+            "display_place": display_place,
+        }
+    return parsed
 
 
 def listing_location_context(row: dict[str, Any]) -> dict[str, str]:
     """Build primary (trusted) and full (fallback) location blobs for a listing."""
     raw_description = str(row.get("description") or "")
     description = strip_facebook_page_junk(raw_description)
-    rental_location = extract_rental_location(raw_description) or extract_rental_location(description)
+    place = resolve_listing_place(row)
+    rental_location = place.get("rental_address") or extract_rental_location(raw_description) or extract_rental_location(description)
     neighborhood = str(row.get("neighborhood") or "").strip()
     title = str(row.get("title") or "").strip()
     url = str(row.get("url") or "").strip()
 
-    primary_parts = [p for p in (rental_location, neighborhood, title) if p]
+    primary_parts = [p for p in (rental_location, place.get("city"), place.get("display_place"), title) if p]
     primary = " ".join(primary_parts).lower()
     full = " ".join([primary, description, url]).lower()
 
@@ -151,6 +233,11 @@ def listing_location_context(row: dict[str, Any]) -> dict[str, str]:
         "primary": primary,
         "full": full,
         "rental_location": rental_location,
+        "rental_address": rental_location,
+        "city": place.get("city", ""),
+        "state": place.get("state", ""),
+        "zip": place.get("zip", ""),
+        "display_place": place.get("display_place", ""),
         "description": description,
         "neighborhood": neighborhood,
         "title": title,
@@ -225,13 +312,15 @@ def resolve_neighborhood_from_text(
     description: str = "",
     fallback: str = "Facebook Marketplace",
 ) -> str:
-    """Infer a display neighborhood from cleaned listing text."""
-    cleaned = strip_facebook_page_junk(description)
-    rental = extract_rental_location(description) or extract_rental_location(cleaned)
-    if rental:
-        city = rental.split(",")[0].strip()
+    """Infer display place from Facebook rental address when available."""
+    fields = parse_facebook_listing_fields(description)
+    if fields.get("display_place"):
+        return fields["display_place"]
+    if fields.get("rental_address"):
+        city, _, _ = parse_city_state_zip(fields["rental_address"])
         if city:
             return city
+    cleaned = strip_facebook_page_junk(description)
     blob = f"{title} {cleaned}".lower()
     for label in (
         "San Francisco",
@@ -241,6 +330,7 @@ def resolve_neighborhood_from_text(
         "El Sobrante",
         "Pittsburg",
         "Antioch",
+        "Castro Valley",
         "Vallejo",
         "SOMA",
         "Mission",
