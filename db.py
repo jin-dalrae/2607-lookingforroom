@@ -575,6 +575,44 @@ def backfill_rental_addresses(*, limit: int | None = None) -> int:
     return updated
 
 
+def backfill_neighborhoods(*, limit: int | None = None) -> int:
+    """Fix stored neighborhoods that still contain Facebook search chrome."""
+    from locations import clean_display_area, resolve_display_area
+
+    init_db()
+    with get_connection() as conn:
+        query = """
+            SELECT id, title, description, neighborhood, rental_address, source, url
+            FROM listings
+            WHERE lower(neighborhood) LIKE 'facebook%'
+               OR lower(neighborhood) LIKE '%marketplace%'
+        """
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (limit,)
+        rows = conn.execute(query, params).fetchall()
+
+    updated = 0
+    for row in rows:
+        listing = dict(row)
+        new_hood = resolve_display_area(listing)
+        cleaned = clean_display_area(new_hood)
+        if not cleaned or cleaned.lower() == "unknown":
+            continue
+        existing = clean_display_area(str(listing.get("neighborhood") or ""))
+        if cleaned == existing:
+            continue
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE listings SET neighborhood = ? WHERE id = ?",
+                (cleaned, listing["id"]),
+            )
+            conn.commit()
+        updated += 1
+    return updated
+
+
 def backfill_posted_at(
     *,
     limit: int | None = None,

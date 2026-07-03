@@ -160,7 +160,7 @@ def _extract_cards_from_search(page: Any, area_name: str) -> list[FacebookCard]:
                 url=url,
                 title=title,
                 price=price,
-                neighborhood=f"Facebook · {area_name}",
+                neighborhood=area_name,
                 listing_id=_listing_id_from_url(url),
             )
         )
@@ -231,7 +231,7 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
     neighborhood = resolve_neighborhood_from_text(
         title=title,
         description=raw_description or "",
-        fallback=fb_fields.get("display_place") or "Facebook Marketplace",
+        fallback=fb_fields.get("display_place") or "Unknown",
     )
 
     if _is_junk_title(title):

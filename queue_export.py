@@ -23,7 +23,7 @@ from listing_dates import (
     resolve_posted_at,
 )
 from map_coords import resolve_listing_coords
-from locations import listing_location_context, resolve_listing_place
+from locations import listing_location_context, resolve_display_area, resolve_listing_place
 from match import listing_matches_criteria
 from listing_size import extract_sqft_from_post, sqft_sort_value
 from send_mail import extract_listing_email
@@ -112,7 +112,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     place = resolve_listing_place(row)
     loc = listing_location_context(row)
     rental_address = place.get("rental_address") or loc.get("rental_location") or ""
-    display_neighborhood = place.get("display_place") or row.get("neighborhood") or "Unknown"
+    display_neighborhood = resolve_display_area(row)
     sqft_label = extract_sqft_from_post(row)
 
     posted_at = resolve_posted_at(row)
@@ -198,9 +198,10 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
 
 
 def write_queue_data(path=None) -> __import__("pathlib").Path:
-    from db import backfill_posted_at, backfill_rental_addresses
+    from db import backfill_neighborhoods, backfill_posted_at, backfill_rental_addresses
 
     backfill_rental_addresses()
+    backfill_neighborhoods()
     backfill_posted_at(remote_limit=200)
     target = path or OUTPUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)

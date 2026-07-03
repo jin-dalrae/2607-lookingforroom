@@ -306,11 +306,66 @@ def is_excluded_location(row: dict[str, Any]) -> bool:
     )
 
 
+_SEARCH_AREA_LABELS: dict[str, str] = {
+    "sf private room": "San Francisco",
+    "sf room rent": "San Francisco",
+    "sf sublet": "San Francisco",
+    "oakland room": "Oakland",
+    "oakland private room": "Oakland",
+    "east bay room": "East Bay",
+}
+
+
+def clean_display_area(text: str) -> str:
+    """Strip Facebook chrome from area labels shown in the UI."""
+    if not text:
+        return ""
+    cleaned = re.sub(r"^facebook\s*·\s*", "", text.strip(), flags=re.IGNORECASE)
+    cleaned = re.sub(r"^facebook\s+", "", cleaned, flags=re.IGNORECASE).strip()
+    low = cleaned.lower()
+    if low in ("facebook", "facebook marketplace"):
+        return ""
+    if low in _SEARCH_AREA_LABELS:
+        return _SEARCH_AREA_LABELS[low]
+    for suffix in (" private room", " room rent", " sublet", " room"):
+        if low.endswith(suffix):
+            base = cleaned[: -len(suffix)].strip()
+            base_low = base.lower()
+            if base_low in _SEARCH_AREA_LABELS:
+                return _SEARCH_AREA_LABELS[base_low]
+            if base_low == "sf":
+                return "San Francisco"
+            if base:
+                return base
+    return cleaned
+
+
+def resolve_display_area(row: dict[str, Any]) -> str:
+    """Human area label for tables — never includes Facebook source chrome."""
+    place = resolve_listing_place(row)
+    for candidate in (
+        place.get("display_place"),
+        place.get("city"),
+        clean_display_area(str(row.get("neighborhood") or "")),
+    ):
+        cleaned = clean_display_area(str(candidate or ""))
+        if cleaned and cleaned.lower() not in ("unknown", "facebook marketplace"):
+            return cleaned
+
+    inferred = resolve_neighborhood_from_text(
+        title=str(row.get("title") or ""),
+        description=str(row.get("description") or ""),
+        fallback="",
+    )
+    cleaned = clean_display_area(inferred)
+    return cleaned or "Unknown"
+
+
 def resolve_neighborhood_from_text(
     *,
     title: str = "",
     description: str = "",
-    fallback: str = "Facebook Marketplace",
+    fallback: str = "",
 ) -> str:
     """Infer display place from Facebook rental address when available."""
     fields = parse_facebook_listing_fields(description)
