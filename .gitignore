@@ -1,0 +1,38 @@
+# Secrets — never commit
+.env
+.env.local
+.env.*
+!.env.example
+gmail_token.json
+gmail_oauth_pending.json
+credentials.json
+telegram_chat.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Runtime / local data
+listings.db
+last_alerted_ids.json
+mail_seen.json
+facebook_state.json
+
+# Generated outputs (optional to track)
+batch_apply.html
+listing-mails-communication.html
+digest.md
+outreach_drafts.txt
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
