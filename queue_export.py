@@ -120,6 +120,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "sqftSort": sqft_sort_value(sqft_label),
         "neighborhood": display_neighborhood,
         "rentalAddress": rental_address,
+        "displayAddress": rental_address or display_neighborhood,
         "city": place.get("city") or "",
         "state": place.get("state") or "",
         "zip": place.get("zip") or "",

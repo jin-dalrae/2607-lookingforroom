@@ -224,8 +224,9 @@ function sourceLabel(item) {
 function searchBlob(item) {
   return [
     item.title,
-    item.neighborhood,
+    item.displayAddress,
     item.rentalAddress,
+    item.neighborhood,
     item.city,
     item.state,
     item.zip,
@@ -268,10 +269,8 @@ function sortValue(item, key) {
       return parseTime(item.postedAt) ?? 0;
     case "scraped":
       return parseTime(item.scrapedAt) ?? 0;
-    case "neighborhood":
-      return (item.neighborhood || "").toLowerCase();
     case "address":
-      return (item.rentalAddress || "").toLowerCase();
+      return addressCell(item).toLowerCase();
     case "title":
       return (item.title || "").toLowerCase();
     case "status":
@@ -299,17 +298,20 @@ function sqftCell(item) {
   return item.sqftLabel ? esc(item.sqftLabel) : "—";
 }
 
+function addressCell(item) {
+  const addr = (item.displayAddress || item.rentalAddress || "").trim();
+  return addr || "—";
+}
+
 function subLines(item) {
-  const parts = [];
-  if (item.isMatch) parts.push('<span class="tag-inline">Move-in OK</span>');
-  if (item.transitTag) parts.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
-  return parts.length ? `<div class="cell-sub">${parts.join("")}</div>` : "";
+  if (!item.transitTag) return "";
+  return `<div class="cell-sub"><span class="tag-inline">${esc(item.transitTag)}</span></div>`;
 }
 
 function renderRow(item, index) {
   const st = statusMeta(item);
   const price = item.price ? `$${item.price}` : "—";
-  const address = item.rentalAddress || "—";
+  const address = addressCell(item);
   const posted = item.postedLabel || "—";
   const scraped = item.scrapedLabel || "—";
   const moveIn = item.moveInLabel || "—";
@@ -336,7 +338,7 @@ function renderRow(item, index) {
 
   const detailRow = `
     <tr class="detail-row" data-detail-for="${index}" hidden>
-      <td colspan="14">
+      <td colspan="13">
         <details class="message-box" open>
           <summary>Apply message</summary>
           <textarea rows="8" readonly>${esc(item.message || "")}</textarea>
@@ -351,8 +353,7 @@ function renderRow(item, index) {
         data-search="${search}"
         data-status="${esc(item.queueStatus)}"
         data-source="${esc(item.isFacebook ? "facebook" : "craigslist")}"
-        data-neighborhood="${esc((item.neighborhood || "").toLowerCase())}"
-        data-address="${esc((item.rentalAddress || "").toLowerCase())}"
+        data-address="${esc(addressCell(item).toLowerCase())}"
         data-price="${sortValue(item, "price")}"
         data-sqft="${sortValue(item, "sqft")}"
         data-movein="${esc((item.moveInLabel || "").toLowerCase())}"
@@ -365,6 +366,7 @@ function renderRow(item, index) {
       <td class="star-cell">
         <button type="button" class="${starClass}" data-id="${esc(item.id)}" title="${item.liked ? "Unlike" : "Like"}">★</button>
       </td>
+      <td>${esc(address)}</td>
       <td class="title-cell">
         <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a>
         ${subLines(item)}
@@ -372,8 +374,6 @@ function renderRow(item, index) {
       <td class="num">${esc(price)}</td>
       <td class="num sqft-cell">${sqftCell(item)}</td>
       <td>${esc(moveIn)}</td>
-      <td>${esc(item.neighborhood || "—")}</td>
-      <td>${esc(address)}</td>
       <td>${esc(posted)}</td>
       <td>${esc(scraped)}</td>
       <td class="num">${esc(score)}</td>
@@ -405,7 +405,7 @@ function render() {
   const items = sortedFilteredItems();
   els.tbody.innerHTML = items.length
     ? items.map((item, i) => renderRow(item, i + 1)).join("")
-    : '<tr><td colspan="14" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
+    : '<tr><td colspan="13" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
 
   const c = state.data?.counts || {};
   els.statToApply.textContent = String(c.toApply ?? 0);
@@ -649,7 +649,7 @@ function bindControls() {
       if (state.sortKey === key) state.sortDir *= -1;
       else {
         state.sortKey = key;
-        state.sortDir = key === "title" || key === "neighborhood" || key === "address" || key === "movein" ? 1 : -1;
+        state.sortDir = key === "title" || key === "address" || key === "movein" ? 1 : -1;
       }
       rerender();
     });
@@ -701,5 +701,5 @@ async function init() {
 }
 
 init().catch((err) => {
-  els.tbody.innerHTML = `<tr><td colspan="14" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="13" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
 });

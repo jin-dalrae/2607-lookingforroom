@@ -44,7 +44,7 @@
       <input type="number" id="filter-price" placeholder="Any" min="0" step="50">
     </label>
     <label class="check-label">
-      <input type="checkbox" id="filter-move-in"> Move-in window only
+      <input type="checkbox" id="filter-move-in"> My move-in window (Jul 20–Aug 18)
     </label>
     <label class="check-label">
       <input type="checkbox" id="filter-liked"> Liked only
@@ -58,12 +58,11 @@
         <tr>
           <th data-sort="index" class="sorted-desc">#</th>
           <th data-sort="liked" class="star-col" title="Liked">★</th>
+          <th data-sort="address">Address</th>
           <th data-sort="title">Title</th>
           <th data-sort="price">$/mo</th>
           <th data-sort="sqft">Sqft</th>
           <th data-sort="movein">Move-in</th>
-          <th data-sort="neighborhood">Area</th>
-          <th data-sort="address">Address</th>
           <th data-sort="posted">Posted</th>
           <th data-sort="scraped">Scraped</th>
           <th data-sort="score">Score</th>
@@ -73,7 +72,7 @@
         </tr>
       </thead>
       <tbody id="queue-body">
-        <tr><td colspan="14" class="hint">Loading listings…</td></tr>
+        <tr><td colspan="13" class="hint">Loading listings…</td></tr>
       </tbody>
     </table>
   </div>
