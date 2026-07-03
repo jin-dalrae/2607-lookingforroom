@@ -212,6 +212,34 @@ SRO_TERMS = (
     "single room occupancy",
 )
 
+OFFICE_SUBLEASE_TERMS = (
+    "office sublease",
+    "office sublet",
+    "sublease office",
+    "sublet office",
+    "commercial office",
+    "office space sublease",
+    "office space sublet",
+    "coworking",
+    "co-working",
+    "co working space",
+    "shared workspace",
+    "shared office space",
+    "workspace sublease",
+    "workspace sublet",
+    "desk rental",
+    "desk space for rent",
+)
+
+_OFFICE_SUBLEASE_TITLE_RE = re.compile(
+    r"office\s+(?:sublease|sublet)\b",
+    re.IGNORECASE,
+)
+_RESIDENTIAL_ROOM_RE = re.compile(
+    r"\b(?:private\s+)?(?:room|bedroom|bed)\b",
+    re.IGNORECASE,
+)
+
 SHARED_HOUSE_OK_TERMS = (
     "shared kitchen",
     "shared bath",
@@ -513,6 +541,7 @@ Output schema:
 }}
 
 Scoring guidance:
+- Reject commercial office/workspace subleases (office sublease, coworking, shared workspace, desk rental). Residential rooms with a home office nook are OK.
 - User needs MONTHLY rent only. Detect rent period from title/description/price:
   weekly signals: "per week", "/week", "weekly", "wk", "a week", "$650/week"
   daily/nightly: "per night", "/night", "daily", "nightly", "$49/day", "airbnb"
@@ -1435,6 +1464,20 @@ def _is_sfsu_close_sf(text: str) -> bool:
     return False
 
 
+def _is_office_sublease(text: str, *, title: str = "") -> bool:
+    """Reject commercial office/workspace subleases — not residential rooms."""
+    tit = (title or "").strip().lower()
+    blob = f"{tit} {text}".lower()
+
+    if _mentions_any(blob, OFFICE_SUBLEASE_TERMS):
+        return True
+    if _OFFICE_SUBLEASE_TITLE_RE.search(tit):
+        return True
+    if "office space" in tit and not _RESIDENTIAL_ROOM_RE.search(tit):
+        return True
+    return False
+
+
 def _has_shared_bedroom_signal(text: str) -> bool:
     if "shared room in" in text or "room in shared" in text:
         return False
@@ -1603,6 +1646,10 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     if _location_hard_exclude(row):
         flags.append("location_reject")
 
+    office_sublease = _is_office_sublease(text, title=loc["title"])
+    if office_sublease:
+        flags.append("office_sublease_reject")
+
     oakland_ok = _is_oakland(primary) or _is_oakland(text)
     if oakland_ok:
         flags.append("oakland_ok")
@@ -1640,7 +1687,7 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         location_adjust = _soften_location_adjustment(location_adjust, raw_price, text)
 
     score = 50
-    if "location_reject" in flags:
+    if "location_reject" in flags or "office_sublease_reject" in flags:
         score = 5
     elif is_scam and room_type in ("shared_bedroom_reject", "sro_reject"):
         score = 10
@@ -1707,6 +1754,8 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
             parts.append("Oakland east — far but $700–800 is typical")
         else:
             parts.append("far Oakland — likely too far")
+    if "office_sublease_reject" in flags:
+        parts.append("office/workspace sublease — reject")
     if "location_reject" in flags:
         if loc["rental_location"]:
             parts.append(f"too far — {loc['rental_location']}")

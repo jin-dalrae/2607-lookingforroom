@@ -78,6 +78,8 @@ def listing_matches_criteria(
         room_flags = [str(room_flags)]
     if "shared_bedroom_reject" in room_flags or "sro_reject" in room_flags:
         return False
+    if "office_sublease_reject" in room_flags:
+        return False
 
     return True
 
