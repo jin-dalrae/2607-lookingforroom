@@ -13,7 +13,6 @@ from apply import load_profile, standard_apply_message
 from channels import default_channel_for_listing, is_facebook_listing
 from db import (
     get_application_by_listing_id,
-    get_matching_listings,
     get_pool_listings,
     init_db,
 )
@@ -21,8 +20,7 @@ from match import listing_matches_criteria
 from send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).parent / "site" / "data.json"
-MATCH_LIMIT = 50
-POOL_LIMIT = 150
+EXPORT_LIMIT = 500
 
 
 def _gmail_compose_url(*, to: str, subject: str, body: str) -> str:
@@ -109,6 +107,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "channel": channel,
         "isFacebook": is_facebook_listing(row),
         "isMatch": listing_matches_criteria(row),
+        "score": row.get("score"),
         "queueStatus": _queue_status(app_status),
         "appStatus": app_status,
         "transitTag": _transit_tag(row.get("flags_json"), row.get("reasoning") or ""),
@@ -120,33 +119,19 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     }
 
 
-def build_queue_payload(
-    *,
-    match_limit: int = MATCH_LIMIT,
-    pool_limit: int = POOL_LIMIT,
-) -> dict[str, Any]:
+def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
     init_db()
     profile = load_profile()
     subject = (profile.get("email_subject") or "Room Rental Inquiry by Aug 18").strip()
 
-    matches = get_matching_listings(limit=match_limit, exclude_scams=True)
-    pool = get_pool_listings(limit=pool_limit, exclude_scams=True)
-
-    seen: set[str] = set()
-    rows: list[dict[str, Any]] = []
-    for row in matches + pool:
-        if row["id"] in seen:
-            continue
-        seen.add(row["id"])
-        rows.append(row)
-
+    rows = get_pool_listings(limit=export_limit, exclude_scams=True)
     listings = [_serialize_listing(row, profile) for row in rows]
     counts = {
         "toApply": sum(1 for item in listings if item["queueStatus"] == "to_apply"),
         "applied": sum(1 for item in listings if item["queueStatus"] == "applied"),
         "replied": sum(1 for item in listings if item["queueStatus"] == "replied"),
-        "matches": sum(1 for item in listings if item["isMatch"]),
-        "pool": len(listings),
+        "moveInWindow": sum(1 for item in listings if item["isMatch"]),
+        "total": len(listings),
     }
 
     api_url = os.getenv("APPLY_API_PUBLIC_URL", "").strip().rstrip("/")

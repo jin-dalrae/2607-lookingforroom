@@ -1,7 +1,11 @@
 const state = {
   data: null,
   tab: "to_apply",
-  view: "matches",
+  search: "",
+  source: "all",
+  maxPrice: "",
+  moveInOnly: false,
+  sort: "score-desc",
   apiOnline: false,
 };
 
@@ -11,6 +15,11 @@ const els = {
   apiPill: document.getElementById("api-pill"),
   messagePre: document.getElementById("message-pre"),
   toast: document.getElementById("toast"),
+  search: document.getElementById("search"),
+  sourceFilter: document.getElementById("source-filter"),
+  maxPrice: document.getElementById("max-price"),
+  moveInOnly: document.getElementById("move-in-only"),
+  sort: document.getElementById("sort"),
 };
 
 function toast(text, isError = false) {
@@ -55,13 +64,63 @@ async function checkApi() {
   }
 }
 
+function compareText(a, b) {
+  return String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" });
+}
+
+function compareNumber(a, b, dir = 1) {
+  const left = Number(a);
+  const right = Number(b);
+  const safeLeft = Number.isFinite(left) ? left : dir > 0 ? Infinity : -Infinity;
+  const safeRight = Number.isFinite(right) ? right : dir > 0 ? Infinity : -Infinity;
+  if (safeLeft === safeRight) return 0;
+  return safeLeft < safeRight ? -dir : dir;
+}
+
+function sortListings(items) {
+  const sorted = [...items];
+  sorted.sort((a, b) => {
+    switch (state.sort) {
+      case "price-asc":
+        return compareNumber(a.price, b.price, 1) || compareText(a.title, b.title);
+      case "price-desc":
+        return compareNumber(a.price, b.price, -1) || compareText(a.title, b.title);
+      case "neighborhood-asc":
+        return compareText(a.neighborhood, b.neighborhood) || compareText(a.title, b.title);
+      case "title-asc":
+        return compareText(a.title, b.title);
+      case "source-asc":
+        return compareText(a.source, b.source) || compareText(a.title, b.title);
+      case "score-desc":
+      default:
+        return compareNumber(b.score, a.score, 1) || compareNumber(a.price, b.price, 1);
+    }
+  });
+  return sorted;
+}
+
 function filteredListings() {
   const items = state.data?.listings || [];
-  return items.filter((item) => {
+  const query = state.search.trim().toLowerCase();
+  const maxPrice = state.maxPrice === "" ? null : Number(state.maxPrice);
+
+  const filtered = items.filter((item) => {
     if (item.queueStatus !== state.tab) return false;
-    if (state.view === "matches" && !item.isMatch) return false;
+    if (state.moveInOnly && !item.isMatch) return false;
+    if (state.source === "facebook" && !item.isFacebook) return false;
+    if (state.source === "craigslist" && item.isFacebook) return false;
+    if (maxPrice !== null && Number.isFinite(maxPrice)) {
+      const price = Number(item.price);
+      if (!Number.isFinite(price) || price > maxPrice) return false;
+    }
+    if (query) {
+      const haystack = `${item.title || ""} ${item.neighborhood || ""}`.toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
     return true;
   });
+
+  return sortListings(filtered);
 }
 
 function statusLabel(item) {
@@ -76,7 +135,7 @@ function renderCard(item, index) {
   const price = item.price ? `$${item.price}/mo` : "N/A";
   const badge = item.isFacebook ? " 📘" : "";
   const tags = [];
-  if (item.isMatch) tags.push('<span class="tag match">Match</span>');
+  if (item.isMatch) tags.push('<span class="tag match">Move-in OK</span>');
   if (item.transitTag) tags.push(`<span class="tag transit">${esc(item.transitTag)}</span>`);
   if (item.moveInTag) tags.push(`<span class="tag">${esc(item.moveInTag)}</span>`);
 
@@ -111,7 +170,7 @@ function render() {
   const items = filteredListings();
   els.list.innerHTML = items.length
     ? items.map((item, i) => renderCard(item, i + 1)).join("")
-    : '<p class="empty">Nothing in this tab. Try switching to Pool or run <code>python run.py</code>.</p>';
+    : '<p class="empty">Nothing here. Try another tab or loosen your filters.</p>';
 
   const c = state.data?.counts || {};
   els.stats.textContent = `${c.toApply ?? 0} to apply · ${c.applied ?? 0} awaiting · ${c.replied ?? 0} replied · ${items.length} shown`;
@@ -202,14 +261,28 @@ function bindControls() {
       render();
     });
   });
-  document.querySelectorAll(".filter").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".filter").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.view = btn.dataset.view;
-      render();
-    });
+
+  els.search.addEventListener("input", () => {
+    state.search = els.search.value;
+    render();
   });
+  els.sourceFilter.addEventListener("change", () => {
+    state.source = els.sourceFilter.value;
+    render();
+  });
+  els.maxPrice.addEventListener("input", () => {
+    state.maxPrice = els.maxPrice.value;
+    render();
+  });
+  els.moveInOnly.addEventListener("change", () => {
+    state.moveInOnly = els.moveInOnly.checked;
+    render();
+  });
+  els.sort.addEventListener("change", () => {
+    state.sort = els.sort.value;
+    render();
+  });
+
   els.list.addEventListener("click", (event) => {
     const applyBtn = event.target.closest(".apply-btn");
     if (applyBtn) {

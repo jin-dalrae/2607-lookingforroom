@@ -34,7 +34,7 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.45rem; }
   align-items: center;
 }
 
-.tabs, .filters {
+.tabs {
   display: inline-flex;
   background: #e8e8ed;
   border-radius: 10px;
@@ -42,7 +42,7 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.45rem; }
   gap: 2px;
 }
 
-.tab, .filter {
+.tab {
   border: 0;
   background: transparent;
   padding: 0.45rem 0.8rem;
@@ -54,11 +54,44 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.45rem; }
   cursor: pointer;
 }
 
-.tab.active, .filter.active {
+.tab.active {
   background: var(--card);
   color: var(--text);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-bottom: 1rem;
+}
+
+.filter-input,
+.filter-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.45rem 0.65rem;
+  font: inherit;
+  font-size: 0.88rem;
+  background: var(--card);
+  color: var(--text);
+}
+
+.filter-input { flex: 1 1 10rem; min-width: 8rem; }
+.filter-price { flex: 0 1 7rem; min-width: 5.5rem; }
+
+.filter-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.88rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.filter-check input { accent-color: var(--blue); }
 
 .api-pill {
   margin-left: auto;

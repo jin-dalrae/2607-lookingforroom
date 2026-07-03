@@ -20,11 +20,29 @@
         <button class="tab" data-tab="applied">Applied</button>
         <button class="tab" data-tab="replied">Replied</button>
       </div>
-      <div class="filters">
-        <button class="filter active" data-view="matches">Matches</button>
-        <button class="filter" data-view="pool">Pool</button>
-      </div>
       <span class="api-pill offline" id="api-pill">Checking API…</span>
+    </div>
+
+    <div class="filter-bar">
+      <input class="filter-input" type="search" id="search" placeholder="Search title or neighborhood" autocomplete="off">
+      <select class="filter-select" id="source-filter" aria-label="Source">
+        <option value="all">All sources</option>
+        <option value="craigslist">Craigslist</option>
+        <option value="facebook">Facebook</option>
+      </select>
+      <input class="filter-input filter-price" type="number" id="max-price" placeholder="Max $/mo" min="0" step="50" aria-label="Max price per month">
+      <label class="filter-check">
+        <input type="checkbox" id="move-in-only">
+        Move-in window
+      </label>
+      <select class="filter-select" id="sort" aria-label="Sort by">
+        <option value="score-desc">Score (high first)</option>
+        <option value="price-asc">Price (low first)</option>
+        <option value="price-desc">Price (high first)</option>
+        <option value="neighborhood-asc">Neighborhood A–Z</option>
+        <option value="title-asc">Title A–Z</option>
+        <option value="source-asc">Source</option>
+      </select>
     </div>
 
     <details class="message-box">
