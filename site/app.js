@@ -230,7 +230,7 @@ function searchBlob(item) {
     item.state,
     item.zip,
     item.transitTag,
-    item.moveInTag,
+    item.moveInLabel,
     sourceLabel(item),
   ].filter(Boolean).join(" ").toLowerCase();
 }
@@ -258,6 +258,8 @@ function sortValue(item, key) {
     case "sqft":
       if (Number.isFinite(Number(item.sqftSort))) return Number(item.sqftSort);
       return -1;
+    case "movein":
+      return (item.moveInLabel || "").toLowerCase();
     case "liked":
       return item.liked ? 1 : 0;
     case "score":
@@ -301,7 +303,6 @@ function subLines(item) {
   const parts = [];
   if (item.isMatch) parts.push('<span class="tag-inline">Move-in OK</span>');
   if (item.transitTag) parts.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
-  if (item.moveInTag) parts.push(`<span class="tag-inline">${esc(item.moveInTag)}</span>`);
   return parts.length ? `<div class="cell-sub">${parts.join("")}</div>` : "";
 }
 
@@ -311,6 +312,7 @@ function renderRow(item, index) {
   const address = item.rentalAddress || "—";
   const posted = item.postedLabel || "—";
   const scraped = item.scrapedLabel || "—";
+  const moveIn = item.moveInLabel || "—";
   const score = Number.isFinite(Number(item.score)) ? String(item.score) : "—";
   const rowClass = [
     "data-row",
@@ -334,7 +336,7 @@ function renderRow(item, index) {
 
   const detailRow = `
     <tr class="detail-row" data-detail-for="${index}" hidden>
-      <td colspan="13">
+      <td colspan="14">
         <details class="message-box" open>
           <summary>Apply message</summary>
           <textarea rows="8" readonly>${esc(item.message || "")}</textarea>
@@ -353,6 +355,7 @@ function renderRow(item, index) {
         data-address="${esc((item.rentalAddress || "").toLowerCase())}"
         data-price="${sortValue(item, "price")}"
         data-sqft="${sortValue(item, "sqft")}"
+        data-movein="${esc((item.moveInLabel || "").toLowerCase())}"
         data-liked="${sortValue(item, "liked")}"
         data-score="${sortValue(item, "score")}"
         data-posted="${sortValue(item, "posted")}"
@@ -368,6 +371,7 @@ function renderRow(item, index) {
       </td>
       <td class="num">${esc(price)}</td>
       <td class="num sqft-cell">${sqftCell(item)}</td>
+      <td>${esc(moveIn)}</td>
       <td>${esc(item.neighborhood || "—")}</td>
       <td>${esc(address)}</td>
       <td>${esc(posted)}</td>
@@ -401,7 +405,7 @@ function render() {
   const items = sortedFilteredItems();
   els.tbody.innerHTML = items.length
     ? items.map((item, i) => renderRow(item, i + 1)).join("")
-    : '<tr><td colspan="13" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
+    : '<tr><td colspan="14" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
 
   const c = state.data?.counts || {};
   els.statToApply.textContent = String(c.toApply ?? 0);
@@ -645,7 +649,7 @@ function bindControls() {
       if (state.sortKey === key) state.sortDir *= -1;
       else {
         state.sortKey = key;
-        state.sortDir = key === "title" || key === "neighborhood" || key === "address" ? 1 : -1;
+        state.sortDir = key === "title" || key === "neighborhood" || key === "address" || key === "movein" ? 1 : -1;
       }
       rerender();
     });
@@ -697,5 +701,5 @@ async function init() {
 }
 
 init().catch((err) => {
-  els.tbody.innerHTML = `<tr><td colspan="13" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="14" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
 });

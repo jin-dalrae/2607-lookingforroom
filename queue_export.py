@@ -25,6 +25,7 @@ from listing_dates import (
 from map_coords import resolve_listing_coords
 from locations import listing_location_context, resolve_display_area, resolve_listing_place
 from match import listing_matches_criteria
+from listing_move_in import extract_move_in_label
 from listing_size import extract_sqft_from_post, sqft_sort_value
 from send_mail import extract_listing_email
 
@@ -59,28 +60,10 @@ def _transit_tag(flags_json: str | None, reasoning: str) -> str | None:
             return "≤10 min Muni"
         return "≤10 min transit"
     if "bart_adjacent" in flags:
-        return "BART (no bonus)"
+        return "BART"
     blob = (reasoning or "").lower()
     if "≤10 min" in blob:
         return blob.split(";")[0].strip()[:40]
-    return None
-
-
-def _move_in_tag(flags_json: str | None) -> str | None:
-    if not flags_json:
-        return None
-    try:
-        parsed = json.loads(flags_json)
-    except (json.JSONDecodeError, TypeError):
-        return None
-    fit = str(parsed.get("move_in_fit") or "")
-    signal = str(parsed.get("move_in_signal") or "")
-    if signal:
-        return signal[:50]
-    if fit == "ideal":
-        return "Move-in OK"
-    if fit in ("maybe", "risky"):
-        return f"Move-in {fit}"
     return None
 
 
@@ -160,7 +143,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "skippedAt": skipped_at,
         "skippedLabel": format_timestamp_label(skipped_at) if skipped_at else None,
         "transitTag": _transit_tag(row.get("flags_json"), row.get("reasoning") or ""),
-        "moveInTag": _move_in_tag(row.get("flags_json")),
+        "moveInLabel": extract_move_in_label(row),
         "to": to_addr,
         "subject": subject,
         "message": message,
