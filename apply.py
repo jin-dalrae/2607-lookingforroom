@@ -87,6 +87,23 @@ def _about_lines(profile: dict[str, Any]) -> str:
     return "\n".join(f"- {line}" for line in lines)
 
 
+def standard_apply_message(
+    profile: dict[str, Any],
+    listing_url: str = "",
+) -> str:
+    """Same inquiry text for every listing — template + optional listing URL."""
+    custom = (profile.get("message_template") or "").strip()
+    if not custom:
+        return build_draft({"url": listing_url, "neighborhood": ""}, profile)
+    url = (listing_url or "").strip()
+    if url and url not in custom:
+        blocks = custom.split("\n\n", 1)
+        if len(blocks) == 2:
+            return f"{blocks[0]}\n\n{url}\n\n{blocks[1]}"
+        return f"{custom}\n\n{url}"
+    return custom
+
+
 def build_draft(listing: dict[str, Any], profile: dict[str, Any]) -> str:
     """Build a personalized Craigslist inquiry from profile + listing flags."""
     custom = (profile.get("message_template") or "").strip()

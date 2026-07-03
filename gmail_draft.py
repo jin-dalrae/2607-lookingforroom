@@ -11,7 +11,7 @@ import time
 from email.mime.text import MIMEText
 from typing import Any
 
-from apply import build_draft, create_application, load_profile, resolve_listing
+from apply import create_application, load_profile, resolve_listing, standard_apply_message
 from db import (
     get_first_unapplied_ranked_listing,
     get_ranked_listing_at_position,
@@ -37,7 +37,7 @@ def _subject_for_listing(_listing: dict[str, Any], profile: dict[str, Any]) -> s
 
 
 def _body_for_listing(listing: dict[str, Any], profile: dict[str, Any]) -> str:
-    return build_draft(listing, profile)
+    return standard_apply_message(profile, listing.get("url") or "")
 
 
 def _draft_message(
