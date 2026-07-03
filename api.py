@@ -86,6 +86,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "gmail": gmail_configured(),
                     "message": "Apply API ready",
+                    "endpoints": ["draft", "sent", "skip"],
                 },
             )
             return
