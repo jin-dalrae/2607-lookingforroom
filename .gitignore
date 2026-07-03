@@ -32,6 +32,9 @@ outreach_drafts.txt
 site/listing-mails-communication.html
 site/batch_apply.html
 
+# Cloudflare local
+.wrangler/
+
 # OS / editor
 .DS_Store
 .idea/
