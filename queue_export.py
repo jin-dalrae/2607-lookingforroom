@@ -16,7 +16,8 @@ from db import (
     get_queue_export_listings,
     init_db,
 )
-from listing_dates import format_timestamp_label, resolve_posted_at
+from listing_dates import format_timestamp_label, posted_label, resolve_posted_at
+from map_coords import resolve_listing_coords
 from locations import listing_location_context, resolve_listing_place
 from match import listing_matches_criteria
 from rank import _size_from_flags
@@ -119,14 +120,25 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     if app and app.get("channel"):
         channel = app["channel"]
 
-    posted_at = resolve_posted_at(row)
-    scraped_at = row.get("last_seen")
     skipped_at = app.get("updated_at") if app and app_status == "skipped" else None
     place = resolve_listing_place(row)
     loc = listing_location_context(row)
     rental_address = place.get("rental_address") or loc.get("rental_location") or ""
     display_neighborhood = place.get("display_place") or row.get("neighborhood") or "Unknown"
     size = _sqft_fields(row.get("flags_json"))
+
+    stored_posted = row.get("posted_at")
+    posted_at = resolve_posted_at(row)
+    posted_estimated = not stored_posted and bool(posted_at)
+    scraped_at = row.get("last_seen")
+    coords = resolve_listing_coords(
+        {
+            **row,
+            "display_place": display_neighborhood,
+            "rental_address": rental_address,
+            "city": place.get("city") or "",
+        }
+    )
 
     return {
         "id": listing_id,
@@ -151,7 +163,10 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "queueStatus": _queue_status(app_status),
         "appStatus": app_status,
         "postedAt": posted_at,
-        "postedLabel": format_timestamp_label(posted_at),
+        "postedEstimated": posted_estimated,
+        "postedLabel": posted_label(posted_at, estimated=posted_estimated),
+        "lat": coords[0] if coords else None,
+        "lng": coords[1] if coords else None,
         "scrapedAt": scraped_at,
         "scrapedLabel": format_timestamp_label(scraped_at),
         "firstScrapedAt": row.get("first_seen"),
@@ -196,9 +211,10 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
 
 
 def write_queue_data(path=None) -> __import__("pathlib").Path:
-    from db import backfill_rental_addresses
+    from db import backfill_posted_at, backfill_rental_addresses
 
     backfill_rental_addresses()
+    backfill_posted_at(remote_limit=40)
     target = path or OUTPUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = build_queue_payload()

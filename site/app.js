@@ -13,6 +13,7 @@ const state = {
 };
 
 const LIKED_STORAGE_KEY = "queue-liked-ids";
+const SKIPPED_STORAGE_KEY = "queue-skipped-ids";
 
 const els = {
   tbody: document.getElementById("queue-body"),
@@ -107,6 +108,43 @@ function mergeLocalLikes() {
   for (const item of state.data?.listings || []) {
     if (local.has(item.id)) item.liked = true;
   }
+}
+
+function loadLocalSkips() {
+  try {
+    const raw = localStorage.getItem(SKIPPED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function saveLocalSkips(ids) {
+  localStorage.setItem(SKIPPED_STORAGE_KEY, JSON.stringify([...ids]));
+}
+
+function mergeLocalSkips() {
+  const local = loadLocalSkips();
+  for (const item of state.data?.listings || []) {
+    if (local.has(item.id) && item.queueStatus === "to_apply") {
+      item.queueStatus = "skipped";
+      item.appStatus = "skipped";
+    }
+  }
+}
+
+function applySkipToItem(id) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item || item.queueStatus === "skipped") return false;
+  const wasToApply = item.queueStatus === "to_apply";
+  item.queueStatus = "skipped";
+  item.appStatus = "skipped";
+  if (state.data?.counts && wasToApply) {
+    state.data.counts.toApply = Math.max(0, (state.data.counts.toApply || 0) - 1);
+    state.data.counts.skipped = (state.data.counts.skipped || 0) + 1;
+  }
+  return true;
 }
 
 function parseTime(value) {
@@ -433,14 +471,22 @@ async function toggleLike(id) {
 
 async function markSkipped(id) {
   const base = apiBase();
-  if (!base) {
-    toast("Start api.py locally to sync skip status", true);
+
+  if (!base || !state.apiHasSkip) {
+    const local = loadLocalSkips();
+    local.add(id);
+    saveLocalSkips(local);
+    if (applySkipToItem(id)) {
+      render();
+      toast("Skipped (saved in this browser)");
+    }
+    if (!base) return;
+    if (!state.apiHasSkip) {
+      toast("Restart api.py to sync skip to database", true);
+    }
     return;
   }
-  if (!state.apiHasSkip) {
-    toast("Restart api.py — your running copy is missing /api/skip", true);
-    return;
-  }
+
   try {
     const res = await fetch(`${base}/api/skip/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
@@ -451,15 +497,10 @@ async function markSkipped(id) {
       throw new Error(json.error || "Failed");
     }
     if (!json.ok) throw new Error(json.error || "Failed");
-    const item = (state.data?.listings || []).find((row) => row.id === id);
-    if (item) {
-      item.queueStatus = "skipped";
-      item.appStatus = "skipped";
-    }
-    if (state.data?.counts) {
-      state.data.counts.toApply = Math.max(0, (state.data.counts.toApply || 0) - 1);
-      state.data.counts.skipped = (state.data.counts.skipped || 0) + 1;
-    }
+    const local = loadLocalSkips();
+    local.delete(id);
+    saveLocalSkips(local);
+    applySkipToItem(id);
     render();
     toast("Skipped");
   } catch (err) {
@@ -566,6 +607,7 @@ async function init() {
   const res = await fetch("./data.json?ts=" + Date.now());
   state.data = await res.json();
   mergeLocalLikes();
+  mergeLocalSkips();
   await checkApi();
   bindControls();
   render();

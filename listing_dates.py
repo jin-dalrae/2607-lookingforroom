@@ -17,6 +17,10 @@ _CL_POSTED_RE = re.compile(
 _ISO_RE = re.compile(
     r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)"
 )
+_POSTED_AGO_RE = re.compile(
+    r"posted\s+(\d+)\s+(minute|hour|day|week|month)s?\s+ago",
+    re.IGNORECASE,
+)
 
 
 def _utcnow() -> datetime:
@@ -29,6 +33,21 @@ def _to_iso(dt: datetime) -> str:
     return dt.astimezone(timezone.utc).isoformat()
 
 
+def normalize_iso_timestamp(raw: str) -> str | None:
+    """Parse CL-style datetime attributes into UTC ISO."""
+    if not raw:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{4}", text):
+        text = f"{text[:-5]}{text[-5:-2]}:{text[-2:]}"
+    try:
+        return _to_iso(datetime.fromisoformat(text.replace("Z", "+00:00")))
+    except ValueError:
+        return None
+
+
 def parse_posted_at(
     text: str,
     *,
@@ -39,13 +58,15 @@ def parse_posted_at(
         return None
     ref = reference or _utcnow()
 
+    direct = normalize_iso_timestamp(text)
+    if direct:
+        return direct
+
     iso_match = _ISO_RE.search(text)
     if iso_match:
-        raw = iso_match.group(1).replace("Z", "+00:00")
-        try:
-            return _to_iso(datetime.fromisoformat(raw))
-        except ValueError:
-            pass
+        parsed = normalize_iso_timestamp(iso_match.group(1))
+        if parsed:
+            return parsed
 
     cl_match = _CL_POSTED_RE.search(text)
     if cl_match:
@@ -74,6 +95,22 @@ def parse_posted_at(
         if posted is not None:
             return _to_iso(posted)
 
+    ago = _POSTED_AGO_RE.search(text)
+    if ago:
+        amount = int(ago.group(1))
+        unit = ago.group(2).lower()
+        if unit == "minute":
+            posted = ref - timedelta(minutes=amount)
+        elif unit == "hour":
+            posted = ref - timedelta(hours=amount)
+        elif unit == "day":
+            posted = ref - timedelta(days=amount)
+        elif unit == "week":
+            posted = ref - timedelta(weeks=amount)
+        else:
+            posted = ref - timedelta(days=amount * 30)
+        return _to_iso(posted)
+
     return None
 
 
@@ -85,7 +122,22 @@ def resolve_posted_at(row: dict[str, Any]) -> str | None:
     blob = " ".join(
         str(row.get(k) or "") for k in ("description", "title")
     )
-    return parse_posted_at(blob)
+    parsed = parse_posted_at(blob)
+    if parsed:
+        return parsed
+    first_seen = row.get("first_seen")
+    return str(first_seen) if first_seen else None
+
+
+def posted_label(
+    iso_value: str | None,
+    *,
+    estimated: bool = False,
+) -> str:
+    label = format_timestamp_label(iso_value)
+    if estimated and label != "Unknown":
+        return f"{label} (est.)"
+    return label
 
 
 def format_timestamp_label(iso_value: str | None) -> str:

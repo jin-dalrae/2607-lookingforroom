@@ -26,7 +26,7 @@ from db import (
     init_db,
 )
 
-OUTPUT_PATH = Path(__file__).parent / "listing-mails-communication.html"
+OUTPUT_PATH = Path(__file__).parent / "site" / "listing-mails-communication.html"
 FOLLOW_UP_AFTER_DAYS = 3
 
 STATUS_LABELS = {

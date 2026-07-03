@@ -136,8 +136,12 @@ def fetch_listing_details(session: requests.Session, url: str) -> tuple[str, str
             break
     time_el = soup.select_one("time.date.timeago")
     if time_el and time_el.get("datetime"):
+        from listing_dates import normalize_iso_timestamp
+
         posting_blob = f"{posting_blob} {time_el['datetime']}".strip()
-    posted_at = parse_posted_at(posting_blob)
+        posted_at = normalize_iso_timestamp(time_el["datetime"])
+    if not posted_at:
+        posted_at = parse_posted_at(posting_blob)
 
     body = soup.select_one("section#postingbody")
     if body:

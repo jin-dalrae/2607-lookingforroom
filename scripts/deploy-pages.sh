@@ -9,6 +9,9 @@ PROJECT_NAME="${PAGES_PROJECT_NAME:-2607-lookingforroom}"
 echo "Exporting apply queue..."
 python listings_page.py
 
+echo "Generating communication page..."
+python communication_page.py
+
 echo "Deploying to Cloudflare Pages ($PROJECT_NAME)..."
 npx wrangler pages deploy site \
   --project-name="$PROJECT_NAME" \

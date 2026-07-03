@@ -569,6 +569,98 @@ def backfill_rental_addresses(*, limit: int | None = None) -> int:
     return updated
 
 
+def backfill_posted_at(
+    *,
+    limit: int | None = None,
+    remote_limit: int = 40,
+) -> dict[str, int]:
+    """Fill missing posted_at from text, first_seen, or Craigslist re-fetch."""
+    from listing_dates import normalize_iso_timestamp, parse_posted_at
+
+    init_db()
+    with get_connection() as conn:
+        query = """
+            SELECT id, url, title, description, posted_at, first_seen, source
+            FROM listings
+            WHERE posted_at IS NULL OR trim(posted_at) = ''
+            ORDER BY last_seen DESC
+        """
+        params: tuple[Any, ...] = ()
+        if limit is not None:
+            query += " LIMIT ?"
+            params = (limit,)
+        rows = conn.execute(query, params).fetchall()
+
+    stats = {"parsed": 0, "estimated": 0, "fetched": 0, "unchanged": 0}
+    remote_budget = remote_limit
+
+    for row in rows:
+        listing = dict(row)
+        posted_at = parse_posted_at(
+            " ".join(
+                str(listing.get(k) or "")
+                for k in ("description", "title")
+            )
+        )
+        source = "parsed" if posted_at else ""
+
+        if (
+            not posted_at
+            and remote_budget > 0
+            and str(listing.get("source") or "") == "craigslist"
+            and listing.get("url")
+        ):
+            try:
+                import requests
+                from bs4 import BeautifulSoup
+
+                response = requests.get(
+                    listing["url"],
+                    timeout=12,
+                    headers={
+                        "User-Agent": (
+                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/120.0.0.0 Safari/537.36"
+                        )
+                    },
+                )
+                response.raise_for_status()
+                soup = BeautifulSoup(response.text, "html.parser")
+                time_el = soup.select_one("time.date.timeago")
+                if time_el and time_el.get("datetime"):
+                    posted_at = normalize_iso_timestamp(time_el["datetime"])
+                if not posted_at:
+                    blob = " ".join(
+                        info.get_text(" ", strip=True)
+                        for info in soup.select("p.postinginfo")
+                    )
+                    posted_at = parse_posted_at(blob)
+                if posted_at:
+                    source = "fetched"
+                    remote_budget -= 1
+            except Exception:
+                pass
+
+        if not posted_at and listing.get("first_seen"):
+            posted_at = str(listing["first_seen"])
+            source = "estimated"
+        elif not posted_at:
+            stats["unchanged"] += 1
+            continue
+
+        stats[source if source in stats else "parsed"] += 1
+
+        with get_connection() as conn:
+            conn.execute(
+                "UPDATE listings SET posted_at = ? WHERE id = ?",
+                (posted_at, listing["id"]),
+            )
+            conn.commit()
+
+    return stats
+
+
 def get_listings_with_queue_applications(
     *,
     statuses: tuple[str, ...] = ("skipped", "sent", "replied", "toured", "draft"),

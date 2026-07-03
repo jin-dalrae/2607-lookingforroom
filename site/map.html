@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Listing map</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="/style.css">
+  <style>
+    #map { height: calc(100vh - 7.5rem); min-height: 24rem; border-radius: 12px; }
+    .map-toolbar { margin: 0.75rem 0; }
+    .map-legend { font-size: 0.85rem; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <h1>Listing map</h1>
+  <p class="hint">
+    Pins use neighborhood/address centroids — approximate, not exact units.
+    <a href="/">Back to apply queue</a>
+  </p>
+  <div class="toolbar map-toolbar">
+    <label>Search
+      <input type="search" id="filter-search" placeholder="Title, area…" autocomplete="off">
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="filter-liked"> Liked only
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="filter-move-in"> Move-in window only
+    </label>
+    <span class="row-count" id="pin-count"></span>
+  </div>
+  <p class="map-legend" id="map-hint">Loading…</p>
+  <div id="map"></div>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <script src="/map.js" defer></script>
+</body>
+</html>
