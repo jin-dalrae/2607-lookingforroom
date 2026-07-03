@@ -10,6 +10,13 @@ import sys
 from datetime import date, timedelta
 from typing import Any
 
+from locations import (
+    has_sf_primary_signal,
+    is_excluded_location as _location_hard_exclude,
+    is_far_east_bay_location,
+    listing_location_context,
+    mentions_any_place,
+)
 from config import (
     AI_MODEL,
     BUDGET_REALISM,
@@ -770,11 +777,11 @@ def _is_caltrain_adjacent(
 
 def _is_sf_proper_listing(text: str) -> bool:
     """True when listing is SF-proper, not Oakland/East Bay/Daly City."""
-    if _is_daly_city(text):
+    if _is_daly_city(text, text):
         return False
     if _is_oakland(text):
         return False
-    if _is_east_bay_penalty(text):
+    if _is_east_bay_penalty(primary=text, full=text):
         return False
     if _is_caltrain_adjacent(text):
         return True
@@ -1335,7 +1342,7 @@ def _pack_flags(
 
 
 def _is_oakland(text: str) -> bool:
-    return _mentions_any(text, OAKLAND_TERMS)
+    return mentions_any_place(text, OAKLAND_TERMS)
 
 
 def _is_sf_richmond(text: str) -> bool:
@@ -1351,20 +1358,40 @@ def _is_sf_richmond(text: str) -> bool:
     )
 
 
-def _is_east_bay_penalty(text: str) -> bool:
-    if _is_oakland(text):
+def _is_east_bay_penalty(*, primary: str, full: str = "", rental_location: str = "") -> bool:
+    if is_far_east_bay_location(
+        primary=primary,
+        full=full,
+        rental_location=rental_location,
+    ):
+        return True
+    if _is_oakland(primary):
         return False
-    if "richmond" in text and _is_sf_richmond(text):
+    if "richmond" in primary and _is_sf_richmond(primary):
         return False
-    return _mentions_any(text, EAST_BAY_PENALIZE)
+    if mentions_any_place(primary, EAST_BAY_PENALIZE):
+        return True
+    if has_sf_primary_signal(primary):
+        return False
+    if full and full != primary and mentions_any_place(full, EAST_BAY_PENALIZE):
+        return True
+    return False
 
 
-def _is_daly_city(text: str) -> bool:
-    return _mentions_any(text, DALY_CITY_TERMS)
+def _is_daly_city(primary: str, full: str = "") -> bool:
+    if mentions_any_place(primary, DALY_CITY_TERMS):
+        return True
+    if has_sf_primary_signal(primary):
+        return False
+    return mentions_any_place(full, DALY_CITY_TERMS) if full else False
 
 
-def _is_far_oakland(text: str) -> bool:
-    return _mentions_any(text, OAKLAND_FAR_TERMS)
+def _is_far_oakland(primary: str, full: str = "") -> bool:
+    if mentions_any_place(primary, OAKLAND_FAR_TERMS):
+        return True
+    if has_sf_primary_signal(primary):
+        return False
+    return mentions_any_place(full, OAKLAND_FAR_TERMS) if full else False
 
 
 def _is_budget_outer_area(text: str) -> bool:
@@ -1386,7 +1413,7 @@ def _soften_location_adjustment(adjustment: int, price: int | None, text: str) -
 
 
 def _far_oakland_penalty(price: int | None, text: str) -> int:
-    if not _is_far_oakland(text):
+    if not _is_far_oakland(text, text):
         return 0
     if _is_normal_outer_rent(price, text):
         return BUDGET_REALISM["far_oakland_penalty"]
@@ -1395,11 +1422,11 @@ def _far_oakland_penalty(price: int | None, text: str) -> int:
 
 def _is_sfsu_close_sf(text: str) -> bool:
     """SF-proper proximity to SFSU/CCSF — not Daly City border listings."""
-    if _is_daly_city(text):
+    if _is_daly_city(text, text):
         return False
     if "san francisco" in text or "city of san francisco" in text:
         pass
-    elif _is_oakland(text) or _is_east_bay_penalty(text):
+    elif _is_oakland(text) or _is_east_bay_penalty(primary=text, full=text):
         return False
     if _mentions_any(text, SFSU_CLOSE_TERMS):
         return True
@@ -1524,9 +1551,9 @@ def _apply_rent_period_scoring(
 
 def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     """Local fallback when Gemini API is unavailable."""
-    text = " ".join(
-        str(row.get(k, "")) for k in ("title", "description", "neighborhood", "url")
-    ).lower()
+    loc = listing_location_context(row)
+    text = loc["full"]
+    primary = loc["primary"]
     raw_price = row.get("price")
     price = raw_price if raw_price is not None else 9999
     flags: list[str] = []
@@ -1573,19 +1600,26 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     if transit_adjacent:
         flags.append("transit_adjacent")
 
-    oakland_ok = _is_oakland(text)
+    if _location_hard_exclude(row):
+        flags.append("location_reject")
+
+    oakland_ok = _is_oakland(primary) or _is_oakland(text)
     if oakland_ok:
         flags.append("oakland_ok")
 
-    east_bay_penalty = _is_east_bay_penalty(text)
+    east_bay_penalty = _is_east_bay_penalty(
+        primary=primary,
+        full=text,
+        rental_location=loc["rental_location"],
+    )
     if east_bay_penalty:
         flags.append("east_bay_penalty")
 
-    daly_city = _is_daly_city(text)
+    daly_city = _is_daly_city(primary, text)
     if daly_city:
         flags.append("daly_city")
 
-    far_oakland = _is_far_oakland(text)
+    far_oakland = _is_far_oakland(primary, text)
     if far_oakland:
         flags.append("far_oakland")
 
@@ -1595,9 +1629,9 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
 
     location_tier, location_adjust, location_flag = _classify_location_tier(
         text,
-        neighborhood=str(row.get("neighborhood") or ""),
-        title=str(row.get("title") or ""),
-        url=str(row.get("url") or ""),
+        neighborhood=loc["rental_location"] or loc["neighborhood"],
+        title=loc["title"],
+        url=loc["url"],
     )
     if location_flag:
         flags.append(location_flag)
@@ -1606,7 +1640,9 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         location_adjust = _soften_location_adjustment(location_adjust, raw_price, text)
 
     score = 50
-    if is_scam and room_type in ("shared_bedroom_reject", "sro_reject"):
+    if "location_reject" in flags:
+        score = 5
+    elif is_scam and room_type in ("shared_bedroom_reject", "sro_reject"):
         score = 10
     elif is_scam:
         score = 5
@@ -1671,7 +1707,12 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
             parts.append("Oakland east — far but $700–800 is typical")
         else:
             parts.append("far Oakland — likely too far")
-    if east_bay_penalty:
+    if "location_reject" in flags:
+        if loc["rental_location"]:
+            parts.append(f"too far — {loc['rental_location']}")
+        else:
+            parts.append("location too far — excluded")
+    if east_bay_penalty and "location_reject" not in flags:
         parts.append("East Bay outside Oakland")
     if daly_city:
         parts.append("Daly City — likely too far")

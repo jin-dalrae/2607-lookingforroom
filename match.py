@@ -6,29 +6,10 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from config import LOCATION_EXCLUDE, SEARCH_CRITERIA
+from config import SEARCH_CRITERIA
+from locations import is_excluded_location
 
 MOVE_IN_FITS_OK = frozenset({"ideal"})
-
-
-def _listing_blob(row: dict[str, Any]) -> str:
-    return " ".join(
-        str(row.get(k, "") or "")
-        for k in ("neighborhood", "title", "description", "url")
-    ).lower()
-
-
-def is_excluded_location(row: dict[str, Any]) -> bool:
-    """Hard reject Excelsior, Oakland east, and related tags."""
-    hood = (row.get("neighborhood") or "").lower()
-    blob = _listing_blob(row)
-    for term in LOCATION_EXCLUDE["terms"]:
-        if term in hood:
-            return True
-    for term in LOCATION_EXCLUDE.get("blob_terms", ()):
-        if term in blob:
-            return True
-    return False
 
 
 def _flags_payload(flags_json: str | None) -> dict[str, Any]:

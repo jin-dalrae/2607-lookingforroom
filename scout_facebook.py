@@ -208,6 +208,8 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         except Exception:
             title = "Facebook Marketplace listing"
 
+    from locations import clean_listing_description, resolve_neighborhood_from_text
+
     body_text = description
     if not body_text:
         try:
@@ -216,14 +218,14 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
             body_text = ""
 
     price = _parse_price(body_text) or _parse_price(title) or _parse_price(description)
-    description = (description or body_text[:4000] or None)
+    raw_description = description or body_text[:4000] or None
+    description = clean_listing_description(raw_description)
 
-    neighborhood = "Facebook Marketplace"
-    blob = f"{title} {description or ''}".lower()
-    for label in ("San Francisco", "Oakland", "Berkeley", "SOMA", "Mission"):
-        if label.lower() in blob:
-            neighborhood = f"Facebook · {label}"
-            break
+    neighborhood = resolve_neighborhood_from_text(
+        title=title,
+        description=raw_description or "",
+        fallback="Facebook Marketplace",
+    )
 
     if _is_junk_title(title):
         title = "Facebook Marketplace listing"

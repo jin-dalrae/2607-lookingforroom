@@ -479,6 +479,12 @@ def get_pool_listings(
             continue
         if not price_within_budget(listing):
             continue
+        from match import is_excluded_location
+
+        if is_excluded_location(listing):
+            continue
+        if "location_reject" in room_flags:
+            continue
         results.append(listing)
 
     return sort_matches(results)[:limit]

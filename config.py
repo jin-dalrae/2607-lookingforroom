@@ -158,6 +158,13 @@ LOCATION_EXCLUDE = {
         "excelsior",
         "oakland east",
         "east oakland",
+        "pittsburg",
+        "pittsburgh",
+        "antioch",
+        "vallejo",
+        "benicia",
+        "el sobrante",
+        "livermore",
     ),
     "blob_terms": (
         "near oakland zoo",
