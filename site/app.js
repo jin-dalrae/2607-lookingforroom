@@ -65,14 +65,19 @@ async function checkApi() {
   const base = apiBase();
   if (!base) {
     state.apiOnline = false;
+    state.apiHasSkip = false;
     return;
   }
   try {
     const res = await fetch(`${base}/api/health`, { method: "GET" });
     const json = await res.json();
     state.apiOnline = Boolean(json.ok);
+    state.apiHasSkip = Array.isArray(json.endpoints)
+      ? json.endpoints.includes("skip")
+      : false;
   } catch (_) {
     state.apiOnline = false;
+    state.apiHasSkip = false;
   }
 }
 
@@ -135,6 +140,10 @@ function sortValue(item, key) {
   switch (key) {
     case "price":
       return Number.isFinite(Number(item.price)) ? Number(item.price) : 99999;
+    case "sqft":
+      if (Number.isFinite(Number(item.sqft))) return Number(item.sqft);
+      if (item.sizeTier === "large") return 200;
+      return -1;
     case "score":
       return Number.isFinite(Number(item.score)) ? Number(item.score) : -1;
     case "posted":
@@ -168,6 +177,18 @@ function sortedFilteredItems() {
   return items;
 }
 
+function sqftCell(item) {
+  if (Number.isFinite(Number(item.sqft))) {
+    const n = Number(item.sqft);
+    const cls = n < 100 ? "sqft-small" : item.meets150Sqft ? "sqft-good" : "";
+    return `<span class="${cls}">${esc(String(n))}</span>`;
+  }
+  if (item.sqftLabel === "Large") {
+    return '<span class="sqft-tier">Large</span>';
+  }
+  return "—";
+}
+
 function subLines(item) {
   const parts = [];
   if (item.isMatch) parts.push('<span class="tag-inline">Move-in OK</span>');
@@ -198,7 +219,7 @@ function renderRow(item, index) {
 
   const detailRow = `
     <tr class="detail-row" data-detail-for="${index}" hidden>
-      <td colspan="11">
+      <td colspan="12">
         <details class="message-box" open>
           <summary>Apply message</summary>
           <textarea rows="8" readonly>${esc(item.message || "")}</textarea>
@@ -216,6 +237,7 @@ function renderRow(item, index) {
         data-neighborhood="${esc((item.neighborhood || "").toLowerCase())}"
         data-address="${esc((item.rentalAddress || "").toLowerCase())}"
         data-price="${sortValue(item, "price")}"
+        data-sqft="${sortValue(item, "sqft")}"
         data-score="${sortValue(item, "score")}"
         data-posted="${sortValue(item, "posted")}"
         data-scraped="${sortValue(item, "scraped")}"
@@ -226,6 +248,7 @@ function renderRow(item, index) {
         ${subLines(item)}
       </td>
       <td class="num">${esc(price)}</td>
+      <td class="num sqft-cell">${sqftCell(item)}</td>
       <td>${esc(item.neighborhood || "—")}</td>
       <td>${esc(address)}</td>
       <td>${esc(posted)}</td>
@@ -259,7 +282,7 @@ function render() {
   const items = sortedFilteredItems();
   els.tbody.innerHTML = items.length
     ? items.map((item, i) => renderRow(item, i + 1)).join("")
-    : '<tr><td colspan="11" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
+    : '<tr><td colspan="12" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
 
   const c = state.data?.counts || {};
   els.statToApply.textContent = String(c.toApply ?? 0);
@@ -271,7 +294,9 @@ function render() {
     ? `Generated ${state.data.generatedAt}. Refresh: python listings_page.py`
     : "";
   els.apiHint.textContent = state.apiOnline
-    ? "API online on your Mac — Apply creates real Gmail drafts."
+    ? state.apiHasSkip
+      ? "API online on your Mac — Apply creates real Gmail drafts."
+      : "API online but outdated — restart api.py so Skip works."
     : "API offline — Apply opens Gmail compose or copies Facebook message.";
 
   updateSortHeaders();
@@ -332,9 +357,19 @@ async function markSkipped(id) {
     toast("Start api.py locally to sync skip status", true);
     return;
   }
+  if (!state.apiHasSkip) {
+    toast("Restart api.py — your running copy is missing /api/skip", true);
+    return;
+  }
   try {
     const res = await fetch(`${base}/api/skip/${encodeURIComponent(id)}`, { method: "POST" });
-    const json = await res.json();
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      if (res.status === 404 && json.error === "Not found") {
+        throw new Error("Restart api.py — skip endpoint not loaded");
+      }
+      throw new Error(json.error || "Failed");
+    }
     if (!json.ok) throw new Error(json.error || "Failed");
     const item = (state.data?.listings || []).find((row) => row.id === id);
     if (item) {
@@ -447,5 +482,5 @@ async function init() {
 }
 
 init().catch((err) => {
-  els.tbody.innerHTML = `<tr><td colspan="11" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="12" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
 });

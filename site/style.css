@@ -138,6 +138,11 @@ tbody td {
 
 tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
+.sqft-cell { white-space: nowrap; }
+.sqft-small { color: var(--orange); font-weight: 600; }
+.sqft-good { color: var(--green); font-weight: 600; }
+.sqft-tier { color: var(--muted); font-style: italic; }
+
 .title-cell a {
   color: var(--text);
   font-weight: 600;
