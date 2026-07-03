@@ -10,7 +10,7 @@ Automated pipeline to scout Craigslist for rooms in San Francisco and Oakland, f
 | Room type | Private bedroom or small shared house (~3 people, ~2 roommates) |
 | Reject | Shared bedroom, SRO/hostel, curtain/partition rooms, scams |
 | Location | SF + Oakland |
-| Transit | **Muni Metro/tram** (N-Judah, J-Church, etc.) preferred; **homes near Caltrain stations work too** (4th & King, Bayshore, Peninsula); then BART; generic Muni bus is weaker |
+| Transit | **Bonus** for Muni Metro/tram or Caltrain within **~10 min walk** — **not BART**; generic Muni bus is weaker |
 | Move-in window | Aug 16–18, 2026 (±2 weeks flexible) |
 
 Configured in `config.py` → `SEARCH_CRITERIA`.

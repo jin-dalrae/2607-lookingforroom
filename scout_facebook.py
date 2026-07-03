@@ -12,12 +12,28 @@ from typing import Any
 from urllib.parse import urlparse
 
 from config import FACEBOOK_MARKETPLACE_SEARCHES, SEARCH_CRITERIA
-from db import init_db, upsert_listing
+from db import get_listing_by_url, init_db, upsert_listing
 from facebook_session import login_instructions, run_interactive_login, session_configured, state_path
 
 ITEM_ID_RE = re.compile(r"/marketplace/item/(\d+)")
 PRICE_RE = re.compile(r"\$\s*([\d,]+)")
-DETAIL_DELAY_SEC = 1.5
+DETAIL_DELAY_SEC = 0.8
+SEARCH_SCROLLS = 10
+SEARCH_SCROLL_PAUSE_MS = 1200
+JUNK_TITLES = frozenset(
+    {
+        "",
+        "notifications",
+        "notification",
+        "marketplace",
+        "facebook",
+        "messenger",
+        "see more",
+        "filters",
+        "create new listing",
+        "your listings",
+    }
+)
 
 
 @dataclass
@@ -69,6 +85,33 @@ def _parse_price(text: str) -> int | None:
     return value
 
 
+def _is_junk_title(title: str) -> bool:
+    return (title or "").strip().lower() in JUNK_TITLES
+
+
+def _parse_card_text(text: str) -> tuple[str, int | None]:
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    price = _parse_price(text)
+    title = ""
+    for line in lines:
+        low = line.lower()
+        if low in JUNK_TITLES or low.startswith("http"):
+            continue
+        if line.startswith("$") and PRICE_RE.search(line):
+            continue
+        if len(line) > 3:
+            title = line
+            break
+    if not title or _is_junk_title(title):
+        for line in lines:
+            if not _is_junk_title(line) and len(line) > 3 and not line.startswith("$"):
+                title = line
+                break
+    if not title or _is_junk_title(title):
+        title = "Facebook Marketplace listing"
+    return title[:200], price
+
+
 def _playwright_context(playwright: Any, *, headless: bool = True) -> Any:
     if not session_configured():
         raise RuntimeError(login_instructions())
@@ -77,36 +120,50 @@ def _playwright_context(playwright: Any, *, headless: bool = True) -> Any:
     return browser, context
 
 
+def _scroll_search_results(page: Any) -> None:
+    for _ in range(SEARCH_SCROLLS):
+        page.evaluate("window.scrollBy(0, Math.max(window.innerHeight, 900) * 1.1)")
+        page.wait_for_timeout(SEARCH_SCROLL_PAUSE_MS)
+
+
 def _extract_cards_from_search(page: Any, area_name: str) -> list[FacebookCard]:
-    page.wait_for_timeout(3000)
+    page.wait_for_timeout(2500)
+    _scroll_search_results(page)
+
+    raw_items = page.evaluate(
+        """() => {
+          const seen = new Set();
+          const out = [];
+          for (const anchor of document.querySelectorAll('a[href*="/marketplace/item/"]')) {
+            const href = anchor.href || anchor.getAttribute('href') || '';
+            const match = href.match(/\\/marketplace\\/item\\/(\\d+)/);
+            if (!match) continue;
+            const url = `https://www.facebook.com/marketplace/item/${match[1]}/`;
+            if (seen.has(url)) continue;
+            seen.add(url);
+            out.push({ url, text: (anchor.innerText || '').trim() });
+          }
+          return out;
+        }"""
+    )
+
     cards: list[FacebookCard] = []
     seen: set[str] = set()
-
-    for anchor in page.locator('a[href*="/marketplace/item/"]').all():
-        href = anchor.get_attribute("href") or ""
-        url = _normalize_item_url(href)
+    for item in raw_items or []:
+        url = _normalize_item_url(str(item.get("url") or ""))
         if not url or url in seen:
             continue
         seen.add(url)
-
-        try:
-            text = anchor.inner_text(timeout=2000).strip()
-        except Exception:
-            text = ""
-        lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
-        title = lines[0] if lines else "Facebook Marketplace listing"
-        price = _parse_price(text)
-
+        title, price = _parse_card_text(str(item.get("text") or ""))
         cards.append(
             FacebookCard(
                 url=url,
-                title=title[:200],
+                title=title,
                 price=price,
                 neighborhood=f"Facebook · {area_name}",
                 listing_id=_listing_id_from_url(url),
             )
         )
-
     return cards
 
 
@@ -115,42 +172,61 @@ def fetch_search_results(page: Any, search_url: str, area_name: str) -> list[Fac
     return _extract_cards_from_search(page, area_name)
 
 
+def _meta_content(page: Any, prop: str) -> str:
+    try:
+        value = page.locator(f'meta[property="{prop}"]').first.get_attribute("content")
+        return (value or "").strip()
+    except Exception:
+        return ""
+
+
 def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
     """Fetch title, price, description from a Marketplace item page."""
     page.goto(url, wait_until="domcontentloaded", timeout=90_000)
-    page.wait_for_timeout(2500)
+    page.wait_for_timeout(2000)
 
-    title = ""
-    for selector in ("h1", '[data-testid="marketplace-pdp-title"]'):
-        try:
-            loc = page.locator(selector).first
-            if loc.count():
-                title = loc.inner_text(timeout=3000).strip()
-                if title:
-                    break
-        except Exception:
-            continue
+    title = _meta_content(page, "og:title")
+    description = _meta_content(page, "og:description")
 
-    if not title:
+    if not title or _is_junk_title(title):
+        for selector in ('[data-testid="marketplace-pdp-title"]', "h1"):
+            try:
+                loc = page.locator(selector).first
+                if loc.count():
+                    candidate = loc.inner_text(timeout=3000).strip()
+                    if candidate and not _is_junk_title(candidate):
+                        title = candidate
+                        break
+            except Exception:
+                continue
+
+    if not title or _is_junk_title(title):
         try:
-            title = (page.title() or "").split("|")[0].strip()
+            page_title = (page.title() or "").split("|")[0].strip()
+            if page_title and not _is_junk_title(page_title):
+                title = page_title
         except Exception:
             title = "Facebook Marketplace listing"
 
-    body_text = ""
-    try:
-        body_text = page.locator("body").inner_text(timeout=5000)
-    except Exception:
-        body_text = ""
+    body_text = description
+    if not body_text:
+        try:
+            body_text = page.locator("body").inner_text(timeout=5000)
+        except Exception:
+            body_text = ""
 
-    price = _parse_price(body_text) or _parse_price(title)
-    description = body_text[:4000] if body_text else ""
+    price = _parse_price(body_text) or _parse_price(title) or _parse_price(description)
+    description = (description or body_text[:4000] or None)
 
     neighborhood = "Facebook Marketplace"
+    blob = f"{title} {description or ''}".lower()
     for label in ("San Francisco", "Oakland", "Berkeley", "SOMA", "Mission"):
-        if label.lower() in body_text.lower():
+        if label.lower() in blob:
             neighborhood = f"Facebook · {label}"
             break
+
+    if _is_junk_title(title):
+        title = "Facebook Marketplace listing"
 
     return {
         "listing_id": _listing_id_from_url(url),
@@ -158,8 +234,37 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         "title": title[:200],
         "price": price,
         "neighborhood": neighborhood,
-        "description": description or None,
+        "description": description,
     }
+
+
+def _merge_card_and_details(card: FacebookCard, details: dict[str, Any]) -> dict[str, Any]:
+    title = details.get("title") or card.title
+    if _is_junk_title(title):
+        title = card.title
+    if _is_junk_title(title):
+        title = "Facebook Marketplace listing"
+    return {
+        "listing_id": details.get("listing_id") or card.listing_id,
+        "url": details.get("url") or card.url,
+        "title": title,
+        "price": details.get("price") or card.price,
+        "neighborhood": details.get("neighborhood") or card.neighborhood,
+        "description": details.get("description"),
+    }
+
+
+def _needs_detail_fetch(card: FacebookCard) -> bool:
+    existing = get_listing_by_url(card.url)
+    if existing is None:
+        return True
+    title = (existing["title"] or "").strip()
+    description = (existing["description"] or "").strip()
+    if _is_junk_title(title):
+        return True
+    if len(description) < 40:
+        return True
+    return False
 
 
 def ingest_url(url: str, *, headless: bool = True) -> dict[str, Any]:
@@ -193,11 +298,11 @@ def ingest_url(url: str, *, headless: bool = True) -> dict[str, Any]:
     return details
 
 
-def run_poll_cycle(*, headless: bool = True) -> dict[str, int]:
+def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict[str, int]:
     from playwright.sync_api import sync_playwright
 
     init_db()
-    counts = {"new": 0, "updated": 0, "unchanged": 0, "errors": 0, "cards": 0}
+    counts = {"new": 0, "updated": 0, "unchanged": 0, "errors": 0, "cards": 0, "details": 0}
 
     with sync_playwright() as playwright:
         browser, context = _playwright_context(playwright, headless=headless)
@@ -221,21 +326,36 @@ def run_poll_cycle(*, headless: bool = True) -> dict[str, int]:
                         all_cards.append(card)
 
             counts["cards"] = len(all_cards)
+            print(f"Total unique cards: {len(all_cards)}")
 
             for index, card in enumerate(all_cards, start=1):
-                if index > 1:
-                    time.sleep(DETAIL_DELAY_SEC)
                 try:
-                    details = fetch_listing_details(page, card.url)
-                    outcome = upsert_listing(
-                        listing_id=details["listing_id"],
-                        url=details["url"],
-                        title=details["title"] or card.title,
-                        price=details["price"] or card.price,
-                        neighborhood=details["neighborhood"] or card.neighborhood,
-                        description=details["description"],
-                        source="facebook",
-                    )
+                    fetch_details = with_details and _needs_detail_fetch(card)
+                    if fetch_details:
+                        if counts["details"] > 0:
+                            time.sleep(DETAIL_DELAY_SEC)
+                        details = fetch_listing_details(page, card.url)
+                        counts["details"] += 1
+                        merged = _merge_card_and_details(card, details)
+                        outcome = upsert_listing(
+                            listing_id=merged["listing_id"],
+                            url=merged["url"],
+                            title=merged["title"],
+                            price=merged["price"],
+                            neighborhood=merged["neighborhood"],
+                            description=merged["description"],
+                            source="facebook",
+                        )
+                    else:
+                        outcome = upsert_listing(
+                            listing_id=card.listing_id,
+                            url=card.url,
+                            title=card.title,
+                            price=card.price,
+                            neighborhood=card.neighborhood,
+                            description=None,
+                            source="facebook",
+                        )
                     counts[outcome] += 1
                 except Exception as exc:
                     counts["errors"] += 1
@@ -255,6 +375,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     poll = sub.add_parser("poll", help="Poll configured Marketplace searches")
     poll.add_argument("--headed", action="store_true", help="Show browser window")
+    poll.add_argument(
+        "--with-details",
+        action="store_true",
+        help="Fetch each listing page (slow; usually unnecessary)",
+    )
 
     ingest = sub.add_parser("ingest", help="Import one Marketplace item URL")
     ingest.add_argument("url", help="facebook.com/marketplace/item/… URL")
@@ -298,12 +423,16 @@ def main(argv: list[str] | None = None) -> int:
             print(login_instructions(), file=sys.stderr)
             return 1
         try:
-            counts = run_poll_cycle(headless=not args.headed)
+            counts = run_poll_cycle(
+                headless=not args.headed,
+                with_details=args.with_details,
+            )
             total = counts["new"] + counts["updated"] + counts["unchanged"]
             print(
                 f"Done. {counts['cards']} cards → {total} stored "
                 f"({counts['new']} new, {counts['updated']} updated, "
-                f"{counts['unchanged']} unchanged)"
+                f"{counts['unchanged']} unchanged; "
+                f"{counts['details']} detail fetches)"
             )
             if counts["errors"]:
                 print(f"Errors: {counts['errors']}", file=sys.stderr)
@@ -311,7 +440,7 @@ def main(argv: list[str] | None = None) -> int:
                 import filter as listing_filter
                 import rank as rank_module
 
-                print("▶ Filter + rank for new Facebook listings…")
+                print("▶ Filter + rank for Facebook listings…")
                 listing_filter.run()
                 rank_module.run()
             return 0 if total or counts["cards"] == 0 else 1

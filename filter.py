@@ -60,10 +60,9 @@ CRITERIA = {
     ),
     "current_location": SEARCH_CRITERIA.get("current_location", "SOMA"),
     "transit_priority": (
-        "Muni Metro/tram/streetcar (N-Judah, J-Church, K/T/M, F-Market, etc.) "
-        "highest priority, then Caltrain — station-adjacent homes are acceptable "
-        "(4th & King, Bayshore, Dogpatch, Peninsula corridor), then BART; "
-        "generic Muni bus is weaker"
+        "Score bonus ONLY for Muni Metro/tram or Caltrain within ~10 min walk — "
+        "NOT BART. Tag bart_adjacent for info but no score boost. "
+        "Generic Muni bus is weaker."
     ),
     "accept": [
         "private room / private bedroom",
@@ -517,7 +516,7 @@ Scoring guidance:
 - Accept private bedroom OR own room in small shared house (~3 people, shared kitchen/bath OK).
 - Do NOT penalize shared kitchen/bathroom/house — only reject shared BEDROOM, SRO/hostel, curtain rooms.
 - Boost small households: 3br, 2 roommates, 3-person house (add flag small_household).
-- Transit priority: Muni Metro/tram/streetcar (+muni_tram_adjacent) > Caltrain (+caltrain_adjacent) > BART (+bart_adjacent) > generic Muni bus (+muni_bus_only). Add transit_adjacent for any tier.
+- Transit bonus ONLY when Muni Metro/tram or Caltrain is within 10 minutes walk (+transit_10min_bonus, +muni_tram_adjacent or +caltrain_adjacent). NOT BART — tag bart_adjacent but no boost. Generic Muni bus (+muni_bus_only) is weaker.
 - User is currently in SOMA and prefers SF city center: boost SOMA/South Beach/Mission Bay (+soma_adjacent), Financial District/Embarcadero/Civic Center (+city_center), Hayes Valley/Inner Mission/Potrero (+central_adjacent).
 - Homes near Caltrain stations work too: tag +caltrain_adjacent and +caltrain_corridor for 4th & King, Bayshore, Dogpatch, Peninsula stations, or any "near Caltrain" / walk-to-station language. Do NOT apply outer_sf_penalty when Caltrain is mentioned.
 - Oakland near BART is acceptable but secondary to central SF.
@@ -604,6 +603,89 @@ def _mentions_muni_bus_only(text: str) -> bool:
     )
 
 
+_WALK_MINUTES_RE = re.compile(
+    r"(?:(?:within|under|less than)\s*)?(\d{1,2})\s*(?:-\s*)?(?:min(?:ute)?s?)"
+    r"\s*(?:walk|away|to|from|of)",
+    re.IGNORECASE,
+)
+_CLOSE_WALK_PHRASES = (
+    "walk to muni",
+    "walk to caltrain",
+    "walk to cal train",
+    "walking distance to muni",
+    "walking distance to caltrain",
+    "walking distance to cal train",
+    "blocks from muni",
+    "blocks from caltrain",
+    "blocks from cal train",
+    "short walk to muni",
+    "short walk to caltrain",
+    "short walk to cal train",
+    "steps from muni",
+    "steps from caltrain",
+    "steps from cal train",
+    "10 min to muni",
+    "10 min to caltrain",
+    "10 min to cal train",
+    "10-minute walk to muni",
+    "10-minute walk to caltrain",
+    "5 min walk to muni",
+    "5 min walk to caltrain",
+    "7 min walk to muni",
+    "7 min walk to caltrain",
+)
+_MUNI_CONTEXT_WORDS = (
+    "muni",
+    "metro",
+    "streetcar",
+    "tram",
+    "light rail",
+    "judah",
+    "church line",
+    "f-market",
+    "e-embarcadero",
+    "t-third",
+    "k-ingleside",
+    "m-ocean",
+)
+_CALTRAIN_CONTEXT_WORDS = ("caltrain", "cal train", "4th & king", "4th and king", "bayshore")
+
+
+def _transit_context_is_muni_or_caltrain(window: str) -> bool:
+    low = window.lower()
+    if _mentions_muni_tram(low) or _mentions_any(low, _CALTRAIN_TERMS):
+        return True
+    if any(word in low for word in _MUNI_CONTEXT_WORDS + _CALTRAIN_CONTEXT_WORDS):
+        return True
+    return False
+
+
+def _muni_caltrain_within_10min(text: str) -> bool:
+    """True when listing says Muni Metro/tram or Caltrain is within ~10 min walk."""
+    low = text.lower()
+    max_minutes = int(TRANSIT_PREFERENCES.get("max_walk_minutes", 10))
+    if not (_mentions_muni_tram(low) or _mentions_any(low, _CALTRAIN_TERMS)):
+        return False
+    for phrase in _CLOSE_WALK_PHRASES:
+        if phrase in low:
+            return True
+    for match in _WALK_MINUTES_RE.finditer(low):
+        try:
+            minutes = int(match.group(1))
+        except ValueError:
+            continue
+        if minutes > max_minutes:
+            continue
+        start = max(0, match.start() - 60)
+        end = min(len(low), match.end() + 80)
+        window = low[start:end]
+        if "bart" in window and not _transit_context_is_muni_or_caltrain(window):
+            continue
+        if _transit_context_is_muni_or_caltrain(window):
+            return True
+    return False
+
+
 def _classify_transit_tier(text: str) -> tuple[str, str | None]:
     """Return (tier, optional line name for Muni Metro)."""
     if _mentions_muni_tram(text):
@@ -619,11 +701,19 @@ def _classify_transit_tier(text: str) -> tuple[str, str | None]:
 
 def _is_transit_adjacent(text: str) -> bool:
     tier, _ = _classify_transit_tier(text)
-    return tier != "none"
+    if tier in ("muni_tram", "caltrain"):
+        return _muni_caltrain_within_10min(text)
+    if tier == "bart":
+        return False
+    return tier == "muni_bus"
 
 
-def _transit_tier_boost(tier: str) -> int:
-    if tier == "none":
+def _transit_tier_boost(tier: str, text: str = "") -> int:
+    if tier == "none" or tier == "bart":
+        return 0
+    if tier in ("muni_tram", "caltrain"):
+        if _muni_caltrain_within_10min(text):
+            return TRANSIT_PREFERENCES["tiers"][tier]["boost"]
         return 0
     return TRANSIT_PREFERENCES["tiers"][tier]["boost"]
 
@@ -1473,10 +1563,13 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     move_in_ok = move_in_fit == "ideal"
 
     transit_tier, muni_line = _classify_transit_tier(text)
-    transit_adjacent = transit_tier != "none"
+    transit_bonus = _transit_tier_boost(transit_tier, text) > 0
+    transit_adjacent = transit_bonus or transit_tier == "muni_bus"
     tier_flag = _transit_tier_flag(transit_tier)
     if tier_flag:
         flags.append(tier_flag)
+    if transit_tier in ("muni_tram", "caltrain") and _muni_caltrain_within_10min(text):
+        flags.append("transit_10min_bonus")
     if transit_adjacent:
         flags.append("transit_adjacent")
 
@@ -1531,7 +1624,7 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         if not short_term_reject and budget_price <= CRITERIA["max_rent"]:
             score += int((CRITERIA["max_rent"] - budget_price) / 50)
         if transit_adjacent:
-            score += _transit_tier_boost(transit_tier)
+            score += _transit_tier_boost(transit_tier, text)
         if location_adjust:
             score += location_adjust
         elif sfsu_close:
@@ -1557,8 +1650,12 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         parts.append("SRO/hostel — reject")
     if small_household:
         parts.append("~3-person household")
-    if transit_adjacent:
+    if transit_tier in ("muni_tram", "caltrain") and _muni_caltrain_within_10min(text):
+        parts.append(f"≤10 min walk to {_transit_tier_label(transit_tier, muni_line)}")
+    elif transit_adjacent and transit_tier == "muni_bus":
         parts.append(f"Near {_transit_tier_label(transit_tier, muni_line)}")
+    elif transit_tier == "bart":
+        parts.append("Near BART (no transit bonus)")
     if location_tier == "outer_sf" and normal_outer_rent:
         parts.append("Excelsior/outer SF — $700–800 is typical rent")
     elif location_tier == "outer_sf" and transit_tier == "caltrain":
@@ -1788,19 +1885,16 @@ def score_batch(batch: list[dict[str, Any]], use_gemini: bool = True) -> list[di
                 if tier_flag and tier_flag not in flags:
                     flags.append(tier_flag)
                 reasoning = str(item.get("reasoning", "")).lower()
-                if transit_tier != "none" and "transit_adjacent" not in flags:
-                    flags.append("transit_adjacent")
-                elif "transit_adjacent" not in flags and any(
-                    t in reasoning for t in ("bart", "muni", "caltrain", "transit", "metro", "streetcar")
+                combined_text = f"{listing_text} {reasoning}"
+                if transit_tier in ("muni_tram", "caltrain") and _muni_caltrain_within_10min(
+                    combined_text
                 ):
+                    if "transit_10min_bonus" not in flags:
+                        flags.append("transit_10min_bonus")
+                    if "transit_adjacent" not in flags:
+                        flags.append("transit_adjacent")
+                elif transit_tier == "muni_bus" and "transit_adjacent" not in flags:
                     flags.append("transit_adjacent")
-                    if transit_tier == "none":
-                        transit_tier, muni_line = _classify_transit_tier(
-                            reasoning + " " + listing_text
-                        )
-                        tier_flag = _transit_tier_flag(transit_tier)
-                        if tier_flag and tier_flag not in flags:
-                            flags.append(tier_flag)
                 item["flags"] = flags
                 item["transit_tier"] = transit_tier
                 item["transit_detail"] = muni_line

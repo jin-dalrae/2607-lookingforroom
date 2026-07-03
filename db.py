@@ -225,8 +225,14 @@ def upsert_listing(
             updates["id"] = listing_id
             changed = True
         if title is not None and title != existing["title"]:
-            updates["title"] = title
-            changed = True
+            junk_titles = {"notifications", "notification", "facebook marketplace listing"}
+            new_low = title.strip().lower()
+            old_low = (existing["title"] or "").strip().lower()
+            if new_low in junk_titles and old_low and old_low not in junk_titles:
+                pass
+            else:
+                updates["title"] = title
+                changed = True
         if price is not None and price != existing["price"]:
             updates["price"] = price
             changed = True

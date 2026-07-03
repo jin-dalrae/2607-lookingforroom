@@ -62,8 +62,8 @@ SEARCH_CRITERIA = {
         "Oakland east. Outer Sunset, Parkside, Ingleside deprioritized unless Caltrain."
     ),
     "transit_priority": (
-        "Muni Metro/tram/streetcar first, then Caltrain (station-adjacent homes OK), "
-        "then BART; generic Muni bus is a weaker signal"
+        "Bonus only for Muni Metro/tram or Caltrain within ~10 min walk — not BART. "
+        "Generic Muni bus is a weaker signal."
     ),
     "neighborhoods_preferred": [
         "SOMA",
@@ -115,19 +115,34 @@ OAKLAND_CRAIGSLIST_URL = (
 # --- Facebook Marketplace (requires: python scout_facebook.py login) ---
 FACEBOOK_MARKETPLACE_SEARCHES = (
     (
-        "San Francisco",
+        "SF private room",
         "https://www.facebook.com/marketplace/sanfrancisco/search/"
         "?query=private%20room&maxPrice=1300&exact=false",
     ),
     (
-        "Oakland",
+        "SF room rent",
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        "?query=room%20for%20rent&maxPrice=1300&exact=false",
+    ),
+    (
+        "SF sublet",
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        "?query=sublet%20room&maxPrice=1300&exact=false",
+    ),
+    (
+        "Oakland room",
         "https://www.facebook.com/marketplace/oakland/search/"
         "?query=room%20rent&maxPrice=1300&exact=false",
     ),
     (
-        "Caltrain corridor",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=room%20caltrain&maxPrice=1300&exact=false",
+        "Oakland private room",
+        "https://www.facebook.com/marketplace/oakland/search/"
+        "?query=private%20room&maxPrice=1300&exact=false",
+    ),
+    (
+        "East Bay room",
+        "https://www.facebook.com/marketplace/oakland/search/"
+        "?query=room%20available&maxPrice=1300&exact=false",
     ),
 )
 
@@ -315,9 +330,10 @@ LOCATION_PREFERENCES = {
     },
 }
 
-# --- Transit preferences (priority order: muni_tram > caltrain > bart > muni_bus) ---
+# --- Transit preferences (10-min walk bonus for muni_tram + caltrain only; not BART) ---
 TRANSIT_PREFERENCES = {
-    "priority": ["muni_tram", "caltrain", "bart", "muni_bus"],
+    "max_walk_minutes": 10,
+    "priority": ["muni_tram", "caltrain", "muni_bus"],
     "tiers": {
         "muni_tram": {
             "boost": 25,
@@ -414,9 +430,9 @@ TRANSIT_PREFERENCES = {
             ),
         },
         "bart": {
-            "boost": 15,
+            "boost": 0,
             "flag": "bart_adjacent",
-            "digest_label": "BART",
+            "digest_label": "BART (no bonus)",
             "terms": (
                 "bart",
                 "walk to bart",
