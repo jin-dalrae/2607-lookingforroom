@@ -55,13 +55,15 @@ CRITERIA = {
     "location": (
         "SF city center preferred (currently in SOMA): SOMA, South Beach, Mission Bay, "
         "Financial District, Civic Center, Hayes Valley, Inner Mission, Potrero, downtown, "
-        "Embarcadero. Oakland near BART OK. Outer Sunset/Parkside/Ingleside/Excelsior too far."
+        "Embarcadero. Homes near Caltrain stations work too (4th & King, Bayshore, Peninsula). "
+        "Oakland near BART OK. Outer Sunset/Parkside/Ingleside too far unless Caltrain-adjacent."
     ),
     "current_location": SEARCH_CRITERIA.get("current_location", "SOMA"),
     "transit_priority": (
         "Muni Metro/tram/streetcar (N-Judah, J-Church, K/T/M, F-Market, etc.) "
-        "highest priority, then Caltrain (4th & King, Bayshore, Peninsula), "
-        "then BART; generic Muni bus is weaker"
+        "highest priority, then Caltrain — station-adjacent homes are acceptable "
+        "(4th & King, Bayshore, Dogpatch, Peninsula corridor), then BART; "
+        "generic Muni bus is weaker"
     ),
     "accept": [
         "private room / private bedroom",
@@ -517,9 +519,10 @@ Scoring guidance:
 - Boost small households: 3br, 2 roommates, 3-person house (add flag small_household).
 - Transit priority: Muni Metro/tram/streetcar (+muni_tram_adjacent) > Caltrain (+caltrain_adjacent) > BART (+bart_adjacent) > generic Muni bus (+muni_bus_only). Add transit_adjacent for any tier.
 - User is currently in SOMA and prefers SF city center: boost SOMA/South Beach/Mission Bay (+soma_adjacent), Financial District/Embarcadero/Civic Center (+city_center), Hayes Valley/Inner Mission/Potrero (+central_adjacent).
+- Homes near Caltrain stations work too: tag +caltrain_adjacent and +caltrain_corridor for 4th & King, Bayshore, Dogpatch, Peninsula stations, or any "near Caltrain" / walk-to-station language. Do NOT apply outer_sf_penalty when Caltrain is mentioned.
 - Oakland near BART is acceptable but secondary to central SF.
 - Prioritize August move-in (Aug 2–Sep 1 ideal; early August maybe). Deprioritize "available now" and unknown dates.
-- Penalize outer SF: Outer Sunset, Parkside, Ingleside, Excelsior, Bayview (+outer_sf_penalty), but $700–800 in Excelsior/Oakland east is normal rent — do not treat as scam.
+- Penalize outer SF: Outer Sunset, Parkside, Ingleside, Excelsior, Bayview (+outer_sf_penalty) UNLESS Caltrain-adjacent; $700–800 in Excelsior/Oakland east is normal rent — do not treat as scam.
 - Penalize Berkeley and East Bay outside Oakland.
 - Penalize Daly City unless clearly BART-adjacent.
 - Room size: only penalize explicit sqft under 100. 150+ sq ft is a nice-to-have, not required.
@@ -640,6 +643,41 @@ def _transit_tier_label(tier: str, line: str | None = None) -> str:
     return label
 
 
+def _caltrain_location_context(
+    *,
+    neighborhood: str = "",
+    title: str = "",
+    url: str = "",
+    full_text: str = "",
+) -> dict[str, str]:
+    return {
+        "neighborhood": neighborhood,
+        "title": title,
+        "url": url,
+        "full_text": full_text,
+    }
+
+
+def _is_caltrain_adjacent(
+    text: str,
+    *,
+    neighborhood: str = "",
+    title: str = "",
+    url: str = "",
+) -> bool:
+    loc = _caltrain_location_context(
+        neighborhood=neighborhood.lower(),
+        title=title.lower(),
+        url=url.lower(),
+        full_text=text.lower(),
+    )
+    caltrain_terms = (
+        _CALTRAIN_TERMS
+        + LOCATION_PREFERENCES["tiers"]["caltrain_corridor"]["terms"]
+    )
+    return _location_match(caltrain_terms, **loc)
+
+
 def _is_sf_proper_listing(text: str) -> bool:
     """True when listing is SF-proper, not Oakland/East Bay/Daly City."""
     if _is_daly_city(text):
@@ -648,6 +686,8 @@ def _is_sf_proper_listing(text: str) -> bool:
         return False
     if _is_east_bay_penalty(text):
         return False
+    if _is_caltrain_adjacent(text):
+        return True
     if "/san-francisco-" in text or "sfc/" in text or "search/sfc" in text:
         return True
     if "san francisco" in text or "city of san francisco" in text:
@@ -674,6 +714,9 @@ def _is_sf_proper_listing(text: str) -> bool:
         "forest hill",
         "noe valley",
         "bernal",
+        "dogpatch",
+        "china basin",
+        "bayshore",
     )
     return _mentions_any(text, sf_hood_markers)
 
@@ -696,7 +739,7 @@ def _location_match(
         return True
     if link and _mentions_any(link, terms):
         return True
-    return _mentions_any(full_text, terms)
+    return _mentions_any(full_text.lower(), terms)
 
 
 def _classify_location_tier(
@@ -717,12 +760,24 @@ def _classify_location_tier(
         "full_text": text,
     }
 
+    caltrain_ok = _is_caltrain_adjacent(
+        text,
+        neighborhood=hood,
+        title=tit,
+        url=link,
+    )
+
     for tier_name in _LOCATION_PENALIZE_ORDER:
         cfg = LOCATION_PREFERENCES["penalize"][tier_name]
         if _location_match(cfg["terms"], **loc):
+            if tier_name == "outer_sf" and caltrain_ok:
+                continue
             return tier_name, cfg["penalty"], cfg["flag"]
 
     if not _is_sf_proper_listing(text):
+        if caltrain_ok:
+            cfg = LOCATION_PREFERENCES["tiers"]["caltrain_corridor"]
+            return "caltrain_corridor", cfg["boost"], cfg["flag"]
         return "none", 0, None
 
     for tier_name in _LOCATION_TIER_ORDER:
@@ -741,6 +796,10 @@ def _classify_location_tier(
             full_text=text if tier_name == "soma_adjacent" else "",
         ):
             return tier_name, cfg["boost"], cfg["flag"]
+
+    if caltrain_ok:
+        cfg = LOCATION_PREFERENCES["tiers"]["caltrain_corridor"]
+        return "caltrain_corridor", cfg["boost"], cfg["flag"]
 
     return "none", 0, None
 
@@ -1502,6 +1561,8 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         parts.append(f"Near {_transit_tier_label(transit_tier, muni_line)}")
     if location_tier == "outer_sf" and normal_outer_rent:
         parts.append("Excelsior/outer SF — $700–800 is typical rent")
+    elif location_tier == "outer_sf" and transit_tier == "caltrain":
+        parts.append("outer SF but near Caltrain — OK")
     elif location_tier != "none":
         parts.append(_location_tier_label(location_tier))
     elif sfsu_close:

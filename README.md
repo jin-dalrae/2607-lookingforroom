@@ -10,7 +10,7 @@ Automated pipeline to scout Craigslist for rooms in San Francisco and Oakland, f
 | Room type | Private bedroom or small shared house (~3 people, ~2 roommates) |
 | Reject | Shared bedroom, SRO/hostel, curtain/partition rooms, scams |
 | Location | SF + Oakland |
-| Transit | **Muni Metro/tram** (N-Judah, J-Church, etc.) preferred, then **Caltrain**, then BART; generic Muni bus is weaker |
+| Transit | **Muni Metro/tram** (N-Judah, J-Church, etc.) preferred; **homes near Caltrain stations work too** (4th & King, Bayshore, Peninsula); then BART; generic Muni bus is weaker |
 | Move-in window | Aug 16–18, 2026 (±2 weeks flexible) |
 
 Configured in `config.py` → `SEARCH_CRITERIA`.
@@ -373,7 +373,7 @@ last_alerted_ids.json  # Tracks alerted listing IDs
 
 1. **Cast a wide net** — Craigslist `private_room=1` + max price in URL.
 2. **Filter hard** — exclude shared-bedroom/SRO/couple listings in `filter.py`; shared kitchen/bath in a small house is OK.
-3. **Rank by value** — lower rent + preferred neighborhoods (Mission, Castro, Noe, Bernal, etc.) score higher. Transit tiers in `config.py` → `TRANSIT_PREFERENCES`: Muni Metro/tram (+25), Caltrain (+22), BART (+15), Muni bus only (+5).
+3. **Rank by value** — lower rent + preferred neighborhoods (Mission, Castro, Noe, Bernal, etc.) score higher. Transit tiers in `config.py` → `TRANSIT_PREFERENCES`: Muni Metro/tram (+25), Caltrain (+22, station-adjacent homes OK even in outer SF), BART (+15), Muni bus only (+5). `/caltrain` in the bot shows Caltrain-adjacent matches.
 4. **Act fast** — run twice daily; reply same day with a short, friendly note and specific move-in dates.
 5. **Supplement with FB** — many landlords post only on Facebook.
 6. **View in person** — never send deposit without seeing the room and meeting roommates.

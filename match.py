@@ -101,16 +101,30 @@ def listing_matches_criteria(
     return True
 
 
+def _is_caltrain_adjacent_row(row: dict[str, Any]) -> bool:
+    payload = _flags_payload(row.get("flags_json"))
+    flags = payload.get("flags") or []
+    if not isinstance(flags, list):
+        flags = [str(flags)]
+    if "caltrain_adjacent" in flags or "caltrain_corridor" in flags:
+        return True
+    if str(payload.get("transit_tier") or "") == "caltrain":
+        return True
+    reasoning = (row.get("reasoning") or "").lower()
+    return "caltrain" in reasoning
+
+
 def sort_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """$800–$1000 first (near $900), then up to $1300 by price."""
+    """$800–$1000 first (near $900), Caltrain-adjacent next, then up to $1300 by price."""
     lo = SEARCH_CRITERIA["price_focus_min"]
     hi = SEARCH_CRITERIA["price_focus_max"]
     midpoint = (lo + hi) / 2
 
-    def _key(row: dict[str, Any]) -> tuple[int, float, int, str]:
+    def _key(row: dict[str, Any]) -> tuple[int, int, float, int, str]:
         price = int(row.get("price") or 9999)
         in_band = 0 if price_in_focus_band(row) else 1
+        caltrain = 0 if _is_caltrain_adjacent_row(row) else 1
         band_distance = abs(price - midpoint) if in_band == 0 else float(price - hi)
-        return (in_band, band_distance, price, row.get("title") or "")
+        return (in_band, caltrain, band_distance, price, row.get("title") or "")
 
     return sorted(rows, key=_key)

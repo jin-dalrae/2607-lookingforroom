@@ -57,12 +57,13 @@ SEARCH_CRITERIA = {
     "location_note": (
         "Currently in SOMA — prefers listings near city center: SOMA, South Beach, "
         "Mission Bay, Financial District, Civic Center, Hayes Valley, Inner Mission, "
-        "Potrero, downtown, Embarcadero. Hard exclude: Excelsior, Oakland east. "
-        "Outer Sunset, Parkside, Ingleside deprioritized."
+        "Potrero, downtown, Embarcadero. Homes near Caltrain stations are acceptable "
+        "too (4th & King, Bayshore, Peninsula corridor). Hard exclude: Excelsior, "
+        "Oakland east. Outer Sunset, Parkside, Ingleside deprioritized unless Caltrain."
     ),
     "transit_priority": (
-        "Muni Metro/tram/streetcar first, then Caltrain, then BART; "
-        "generic Muni bus is a weaker signal"
+        "Muni Metro/tram/streetcar first, then Caltrain (station-adjacent homes OK), "
+        "then BART; generic Muni bus is a weaker signal"
     ),
     "neighborhoods_preferred": [
         "SOMA",
@@ -122,6 +123,11 @@ FACEBOOK_MARKETPLACE_SEARCHES = (
         "Oakland",
         "https://www.facebook.com/marketplace/oakland/search/"
         "?query=room%20rent&maxPrice=1300&exact=false",
+    ),
+    (
+        "Caltrain corridor",
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        "?query=room%20caltrain&maxPrice=1300&exact=false",
     ),
 )
 
@@ -242,6 +248,43 @@ LOCATION_PREFERENCES = {
                 "lower pacific heights",
             ),
         },
+        "caltrain_corridor": {
+            "boost": 18,
+            "flag": "caltrain_corridor",
+            "digest_label": "Near Caltrain",
+            "terms": (
+                "near caltrain",
+                "close to caltrain",
+                "walk to caltrain",
+                "walking distance to caltrain",
+                "blocks from caltrain",
+                "caltrain station",
+                "caltrain stop",
+                "4th & king",
+                "4th and king",
+                "4th/king",
+                "fourth and king",
+                "china basin",
+                "dogpatch",
+                "bayshore",
+                "22nd street",
+                "22nd st",
+                "south san francisco",
+                "san bruno",
+                "millbrae",
+                "burlingame",
+                "san mateo",
+                "hillsdale",
+                "redwood city",
+                "menlo park",
+                "palo alto",
+                "mountain view",
+                "sunnyvale",
+                "lawrence",
+                "san carlos",
+                "belmont",
+            ),
+        },
     },
     "penalize": {
         "outer_sf": {
@@ -336,14 +379,29 @@ TRANSIT_PREFERENCES = {
             "terms": (
                 "caltrain",
                 "cal train",
+                "near caltrain",
+                "close to caltrain",
+                "walk to caltrain",
+                "walking distance to caltrain",
+                "blocks from caltrain",
+                "caltrain station",
+                "caltrain stop",
                 "4th & king",
                 "4th and king",
                 "4th/king",
                 "fourth and king",
+                "china basin",
+                "dogpatch",
                 "bayshore",
+                "22nd street",
+                "22nd st",
+                "south san francisco",
+                "san bruno",
                 "millbrae",
+                "burlingame",
                 "san mateo",
                 "redwood city",
+                "menlo park",
                 "palo alto",
                 "mountain view",
                 "sunnyvale",
