@@ -240,6 +240,48 @@ _RESIDENTIAL_ROOM_RE = re.compile(
     re.IGNORECASE,
 )
 
+SPANISH_RENTAL_TERMS = (
+    "habitación",
+    "habitacion",
+    "habitaciones",
+    "cuarto para rentar",
+    "cuarto de renta",
+    "cuarto disponible",
+    "cuarto en renta",
+    "se renta cuarto",
+    "se renta",
+    "para rentar",
+    "renta cuarto",
+    "departamento",
+    "alquiler",
+    "persona sola",
+    "sin vicios",
+    "casa familiar",
+    "cuarto amueblado",
+    "se busca",
+    "busco ",
+)
+
+_ENGLISH_ROOM_SIGNALS = (
+    "private room",
+    "room for rent",
+    "bedroom",
+    "looking for",
+    "room available",
+    "for rent",
+    "shared house",
+    "shared room",
+    "sublet",
+    "sublease",
+    "move-in",
+    "monthly rent",
+)
+
+_SPANISH_TITLE_RE = re.compile(
+    r"(?:\b\d+\s+habitaci[oó]n|\bse\s+renta\b|\bcuarto\s+(?:para|de|en)\s+renta)",
+    re.IGNORECASE,
+)
+
 SHARED_HOUSE_OK_TERMS = (
     "shared kitchen",
     "shared bath",
@@ -582,6 +624,7 @@ Output schema:
 Scoring guidance:
 - Reject commercial office/workspace subleases (office sublease, coworking, shared workspace, desk rental). Residential rooms with a home office nook are OK.
 - Reject short residential subleases/sublets: single-month sublets, a few weeks, fixed night counts, "flat for the stay", date ranges under ~2 months. Long-term sublets are OK.
+- Reject listings advertised primarily in Spanish (habitación, se renta cuarto, etc.) unless the title clearly includes English room-for-rent wording.
 - User needs MONTHLY rent only. Detect rent period from title/description/price:
   weekly signals: "per week", "/week", "weekly", "wk", "a week", "$650/week"
   daily/nightly: "per night", "/night", "daily", "nightly", "$49/day", "airbnb"
@@ -1537,6 +1580,59 @@ def _is_sfsu_close_sf(text: str) -> bool:
     return False
 
 
+def _has_english_room_listing(blob: str) -> bool:
+    lowered = blob.lower()
+    return any(signal in lowered for signal in _ENGLISH_ROOM_SIGNALS)
+
+
+def _spanish_before_english(title: str) -> bool:
+    """True when Spanish rental wording appears before English in the title."""
+    lowered = title.lower()
+    english_idx = min(
+        (lowered.find(signal) for signal in _ENGLISH_ROOM_SIGNALS if signal in lowered),
+        default=len(lowered),
+    )
+    spanish_markers = (
+        "se renta",
+        "habitaci",
+        "cuarto para rentar",
+        "cuarto de renta",
+        "para rentar",
+        "busco ",
+        "renta cuarto",
+    )
+    spanish_idx = min(
+        (lowered.find(marker) for marker in spanish_markers if marker in lowered),
+        default=len(lowered),
+    )
+    return spanish_idx < english_idx
+
+
+def _is_spanish_promoted_listing(text: str, *, title: str = "") -> bool:
+    """Reject listings advertised primarily in Spanish."""
+    tit = (title or "").strip()
+    blob = f"{tit} {text}".strip()
+    if not blob:
+        return False
+
+    if _SPANISH_TITLE_RE.search(tit):
+        return True
+    if _spanish_before_english(tit):
+        return True
+
+    if _has_english_room_listing(tit):
+        return False
+
+    lowered = blob.lower()
+    spanish_hits = sum(1 for term in SPANISH_RENTAL_TERMS if term in lowered)
+    if spanish_hits >= 2:
+        return True
+    if spanish_hits >= 1 and not _has_english_room_listing(blob[:400]):
+        return True
+
+    return False
+
+
 def _is_office_sublease(text: str, *, title: str = "") -> bool:
     """Reject commercial office/workspace subleases — not residential rooms."""
     tit = (title or "").strip().lower()
@@ -1738,6 +1834,10 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     if office_sublease:
         flags.append("office_sublease_reject")
 
+    language_text = f"{loc['title']} {loc['description']}".strip()
+    if _is_spanish_promoted_listing(language_text, title=loc["title"]):
+        flags.append("spanish_listing_reject")
+
     oakland_ok = _is_oakland(primary) or _is_oakland(text)
     if oakland_ok:
         flags.append("oakland_ok")
@@ -1775,7 +1875,11 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         location_adjust = _soften_location_adjustment(location_adjust, raw_price, text)
 
     score = 50
-    if "location_reject" in flags or "office_sublease_reject" in flags:
+    if (
+        "location_reject" in flags
+        or "office_sublease_reject" in flags
+        or "spanish_listing_reject" in flags
+    ):
         score = 5
     elif is_scam and room_type in ("shared_bedroom_reject", "sro_reject"):
         score = 10
@@ -1844,6 +1948,8 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
             parts.append("far Oakland — likely too far")
     if "office_sublease_reject" in flags:
         parts.append("office/workspace sublease — reject")
+    if "spanish_listing_reject" in flags:
+        parts.append("Spanish listing — reject")
     if "location_reject" in flags:
         if loc["rental_location"]:
             parts.append(f"too far — {loc['rental_location']}")

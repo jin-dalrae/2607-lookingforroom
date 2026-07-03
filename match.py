@@ -81,6 +81,8 @@ def listing_matches_criteria(
         return False
     if "office_sublease_reject" in room_flags:
         return False
+    if "spanish_listing_reject" in room_flags:
+        return False
 
     return True
 

@@ -496,6 +496,8 @@ def get_pool_listings(
             continue
         if "office_sublease_reject" in room_flags:
             continue
+        if "spanish_listing_reject" in room_flags:
+            continue
         results.append(listing)
 
     return sort_matches(results)[:limit]
