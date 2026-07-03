@@ -135,6 +135,10 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "isMatch": listing_matches_criteria(row),
         "liked": bool(row.get("liked")),
         "score": row.get("score"),
+        "scorePending": row.get("score") is None,
+        "scoreLabel": "Pending"
+        if row.get("score") is None
+        else str(int(row.get("score"))),
         "appStatus": app_status,
         "queueStatus": _queue_status(app_status),
         "postedAt": posted_at,
@@ -167,6 +171,7 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
         "gone": sum(1 for item in listings if item["queueStatus"] == "gone"),
         "moveInWindow": sum(1 for item in listings if item["isMatch"]),
         "liked": sum(1 for item in listings if item.get("liked")),
+        "pendingScore": sum(1 for item in listings if item.get("scorePending")),
         "total": len(listings),
     }
 
@@ -206,10 +211,14 @@ def write_queue_data(path=None, *, run_backfill: bool = True) -> __import__("pat
         detail_stats = {"updated": 0, "rescored": 0}
         if detail_limit > 0:
             detail_stats = backfill_facebook_details(limit=detail_limit, queue_only=True)
-        if detail_stats.get("updated") or detail_stats.get("rescored"):
-            import filter as listing_filter
+        import filter as listing_filter
 
-            listing_filter.run()
+        if detail_stats.get("updated") or detail_stats.get("rescored"):
+            listing_filter.run(use_gemini=False)
+        score_rounds = int(os.getenv("SCORE_ROUNDS", "25"))
+        for _ in range(score_rounds):
+            if listing_filter.run(use_gemini=False) == 0:
+                break
     target = path or OUTPUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = build_queue_payload()

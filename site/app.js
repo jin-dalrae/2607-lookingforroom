@@ -50,6 +50,7 @@ const els = {
   statReplied: document.getElementById("stat-replied"),
   statSkipped: document.getElementById("stat-skipped"),
   statGone: document.getElementById("stat-gone"),
+  statPendingScore: document.getElementById("stat-pending-score"),
   pagination: document.getElementById("pagination"),
 };
 
@@ -456,6 +457,7 @@ function sortValue(item, key) {
     case "liked":
       return item.liked ? 1 : 0;
     case "score":
+      if (item.scorePending) return -2;
       return Number.isFinite(Number(item.score)) ? Number(item.score) : -1;
     case "posted":
       return parseTime(item.postedAt) ?? 0;
@@ -622,11 +624,16 @@ function renderRow(item, index) {
   const posted = item.postedLabel || "—";
   const scraped = item.scrapedLabel || "—";
   const moveIn = item.moveInLabel || "—";
-  const score = Number.isFinite(Number(item.score)) ? String(item.score) : "—";
+  const score = item.scorePending
+    ? '<span class="score-pending" title="Scoring not finished yet">Pending</span>'
+    : Number.isFinite(Number(item.score))
+      ? esc(String(item.score))
+      : "—";
   const rowClass = [
     "data-row",
     item.isMatch ? "match-row" : "",
     item.liked ? "liked-row" : "",
+    item.scorePending ? "pending-score-row" : "",
     item.id === state.lastClickedId ? "last-clicked-row" : "",
   ].filter(Boolean).join(" ");
   const starClass = item.liked ? "star-btn on" : "star-btn";
@@ -669,7 +676,7 @@ function renderRow(item, index) {
       <td>${esc(moveIn)}</td>
       <td>${esc(posted)}</td>
       <td>${esc(scraped)}</td>
-      <td class="num">${esc(score)}</td>
+      <td class="num score-cell">${score}</td>
       <td><span class="badge badge-${st.css}">${esc(st.label)}</span></td>
       <td><span class="badge badge-channel">${esc(sourceLabel(item))}</span></td>
       <td class="links-cell">${actionBtns.join("")}</td>
@@ -703,6 +710,7 @@ function render() {
   els.statReplied.textContent = String(c.replied ?? 0);
   els.statSkipped.textContent = String(c.skipped ?? 0);
   if (els.statGone) els.statGone.textContent = String(c.gone ?? 0);
+  if (els.statPendingScore) els.statPendingScore.textContent = String(c.pendingScore ?? 0);
   const total = totalPages(items.length);
   els.rowCount.textContent = items.length
     ? `${pageItems.length} on page · ${items.length} total · page ${state.page}/${total}`

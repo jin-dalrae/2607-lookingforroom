@@ -172,9 +172,9 @@ def _enrich_rent_period(
 
 
 def score_batch(batch: list[dict[str, Any]], use_gemini: bool = True) -> list[dict[str, Any]]:
-    from lfr.listings.description import is_facebook_scoring_ready
+    from lfr.listings.description import is_queue_scorable
 
-    batch = [row for row in batch if is_facebook_scoring_ready(row)]
+    batch = [row for row in batch if is_queue_scorable(row)]
     if not batch:
         return []
     if use_gemini:

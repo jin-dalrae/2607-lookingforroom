@@ -196,3 +196,19 @@ def is_facebook_scoring_ready(row: dict[str, Any]) -> bool:
 
     title = str(row.get("title") or "").strip()
     return bool(title and not is_junk_facebook_title(title))
+
+
+def is_queue_scorable(row: dict[str, Any]) -> bool:
+    """True when a listing has enough data for heuristic queue scoring."""
+    if is_facebook_scoring_ready(row):
+        return True
+    if str(row.get("source") or "") != "facebook":
+        return bool(str(row.get("title") or "").strip())
+    title = str(row.get("title") or "").strip()
+    if not title or is_junk_facebook_title(title):
+        return False
+    price = row.get("price")
+    try:
+        return price is not None and int(price) > 0
+    except (TypeError, ValueError):
+        return False

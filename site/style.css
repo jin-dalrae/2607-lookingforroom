@@ -129,6 +129,15 @@ thead th.no-sort { cursor: default; }
 tbody tr.data-row { border-bottom: 1px solid #ececef; }
 tbody tr.data-row:hover { background: #fafafa; }
 tbody tr.match-row { background: #f7fbff; }
+tbody tr.pending-score-row { background: #fffaf2; }
+
+.score-pending {
+  display: inline-block;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--orange);
+  letter-spacing: 0.02em;
+}
 tbody tr.liked-row { background: #fffdf5; }
 tbody tr.liked-row:hover { background: #fff8e6; }
 tbody tr.last-clicked-row {

@@ -15,7 +15,7 @@ def get_unscored(limit: int = 20) -> list[dict[str, Any]]:
 
 def get_unscored_listings(limit: int = 20) -> list[dict[str, Any]]:
     """Return listings not yet scored by the intelligence layer."""
-    from lfr.listings.description import is_facebook_scoring_ready
+    from lfr.listings.description import is_queue_scorable
 
     init_db()
     results: list[dict[str, Any]] = []
@@ -38,7 +38,7 @@ def get_unscored_listings(limit: int = 20) -> list[dict[str, Any]]:
             break
         for row in rows:
             listing = dict(row)
-            if is_facebook_scoring_ready(listing):
+            if is_queue_scorable(listing):
                 results.append(listing)
                 if len(results) >= limit:
                     break

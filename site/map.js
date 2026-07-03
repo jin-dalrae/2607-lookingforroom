@@ -37,7 +37,7 @@ function popupHtml(item) {
     <div style="min-width:12rem;line-height:1.4">
       <strong><a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a></strong><br>
       ${esc(price)} · ${esc(item.neighborhood || "—")}<br>
-      Sqft: ${esc(sqft)} · Score: ${esc(item.score ?? "—")}<br>
+      Sqft: ${esc(sqft)} · Score: ${esc(item.scoreLabel ?? item.score ?? "—")}<br>
       ${item.liked ? "★ Liked<br>" : ""}
       <a href="/">Open queue</a>
     </div>`;
