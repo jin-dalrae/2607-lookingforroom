@@ -40,7 +40,7 @@ def load_profile(path: Path | None = None) -> dict[str, Any]:
     if not profile_path.exists():
         raise FileNotFoundError(
             f"Profile not found: {profile_path}. "
-            "Copy profile.yaml and fill in your details."
+            "Copy profile.example.yaml to profile.yaml and fill in your details."
         )
     with profile_path.open(encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}

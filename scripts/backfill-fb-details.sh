@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scrape Facebook listing text for queue rows missing descriptions.
+# Scrape Facebook listing pages for rows missing location, description, or move-in.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -10,12 +10,14 @@ if [[ ! -x "$PYTHON" ]]; then
   PYTHON="$(command -v python3)"
 fi
 
-LIMIT="${1:-8}"
-echo "Fetching Facebook details for up to ${LIMIT} queue listing(s) (~30s each)..."
-"$PYTHON" -c "
-from db import backfill_facebook_details
-print(backfill_facebook_details(limit=int('${LIMIT}'), queue_only=True))
-"
+LIMIT="${1:-50}"
+ALL_FLAG=""
+if [[ "${2:-}" == "--all" ]]; then
+  ALL_FLAG="--all"
+fi
 
-DETAIL_BACKFILL_LIMIT=0 POSTED_BACKFILL_LIMIT=0 "$PYTHON" listings_page.py
+echo "Fetching Facebook details for up to ${LIMIT} listing(s) (~30s each)..."
+"$PYTHON" scout_facebook.py backfill --limit "$LIMIT" $ALL_FLAG
+
+DETAIL_BACKFILL_LIMIT=0 POSTED_BACKFILL_LIMIT=0 FB_TITLE_BACKFILL_LIMIT=0 "$PYTHON" listings_page.py
 echo "Queue export updated."

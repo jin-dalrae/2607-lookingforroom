@@ -1,0 +1,18 @@
+name: "Your Name"
+email: "you@example.com"
+email_subject: "Room Rental Inquiry by Aug 18"
+phone: "555-555-5555"
+move_in: "late July through August 18, 2026"
+budget: 1300
+
+message_template: |
+  Hi! I'm interested in your room listing.
+
+  [Your intro, move-in window, and contact info.]
+
+append_hold_question: true
+
+follow_up_template: |
+  Hi! I wanted to follow up on my room inquiry. I'm still very interested.
+
+  Is the room still available? Thank you!

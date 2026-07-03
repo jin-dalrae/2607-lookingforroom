@@ -8,9 +8,8 @@
 </head>
 <body>
   <h1>Apply queue</h1>
-  <p class="hint">Sort by clicking column headers · <a href="/map.html">Map view</a>. <strong>Apply</strong> opens Gmail compose or copies a Facebook message — no server call.
-    After you send, use <strong>Mark sent</strong> — then track replies on
-    <a href="/listing-mails-communication">listing mail communication</a>.</p>
+  <p class="hint">Sort by clicking column headers · <a href="/map.html">Map view</a>. <strong>Apply</strong> opens Gmail compose or copies a Facebook message.
+    After you send, use <strong>Mark sent</strong>. On <strong>Applied</strong>, use <strong>Replied</strong> or <strong>Gone</strong> to track the outcome.</p>
   <p class="hint" id="api-hint">Checking API…</p>
 
   <div class="stats" id="stats">
@@ -18,6 +17,7 @@
     <span class="stat">Applied <strong id="stat-applied">…</strong></span>
     <span class="stat">Replied <strong id="stat-replied">…</strong></span>
     <span class="stat">Skipped <strong id="stat-skipped">…</strong></span>
+    <span class="stat">Gone <strong id="stat-gone">…</strong></span>
   </div>
   <p class="hint" id="generated-hint">Loading…</p>
 
@@ -31,6 +31,7 @@
         <option value="applied">Applied</option>
         <option value="replied">Replied</option>
         <option value="skipped">Skipped</option>
+        <option value="gone">Gone</option>
       </select>
     </label>
     <label>Source
@@ -42,9 +43,6 @@
     </label>
     <label>Max $/mo
       <input type="number" id="filter-price" placeholder="Any" min="0" step="50">
-    </label>
-    <label class="check-label">
-      <input type="checkbox" id="filter-move-in"> My move-in window (Jul 20–Aug 18)
     </label>
     <label class="check-label">
       <input type="checkbox" id="filter-liked"> Liked only
@@ -81,6 +79,6 @@
   <nav class="pagination" id="pagination" aria-label="Listing pages"></nav>
 
   <div class="toast" id="toast"></div>
-  <script src="/app.js" defer></script>
+  <script src="/app.js?v=6" defer></script>
 </body>
 </html>

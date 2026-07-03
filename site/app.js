@@ -4,13 +4,14 @@ const state = {
   search: "",
   source: "all",
   maxPrice: "",
-  moveInOnly: false,
+
   likedOnly: false,
   sortKey: "score",
   sortDir: -1,
   apiOnline: false,
   apiHasLike: false,
   apiHasDelete: false,
+  apiHasReplied: false,
   lastClickedId: null,
   page: 1,
 };
@@ -22,6 +23,14 @@ const SKIPPED_STORAGE_KEY = "queue-skipped-ids";
 const DELETED_STORAGE_KEY = "queue-deleted-ids";
 const LAST_CLICKED_KEY = "queue-last-clicked-id";
 const DETAILS_PREVIEW_WORDS = 5;
+const MOVE_IN_SORT_UNKNOWN = 999_999_999;
+
+const MONTH_NUMBERS = {
+  jan: 1, january: 1, feb: 2, february: 2, mar: 3, march: 3,
+  apr: 4, april: 4, may: 5, jun: 6, june: 6, jul: 7, july: 7,
+  aug: 8, august: 8, sep: 9, sept: 9, september: 9, oct: 10, october: 10,
+  nov: 11, november: 11, dec: 12, december: 12,
+};
 
 const els = {
   tbody: document.getElementById("queue-body"),
@@ -31,7 +40,7 @@ const els = {
   status: document.getElementById("filter-status"),
   source: document.getElementById("filter-source"),
   maxPrice: document.getElementById("filter-price"),
-  moveInOnly: document.getElementById("filter-move-in"),
+
   likedOnly: document.getElementById("filter-liked"),
   rowCount: document.getElementById("row-count"),
   apiHint: document.getElementById("api-hint"),
@@ -40,6 +49,7 @@ const els = {
   statApplied: document.getElementById("stat-applied"),
   statReplied: document.getElementById("stat-replied"),
   statSkipped: document.getElementById("stat-skipped"),
+  statGone: document.getElementById("stat-gone"),
   pagination: document.getElementById("pagination"),
 };
 
@@ -83,6 +93,7 @@ async function checkApi() {
     state.apiHasSkip = false;
     state.apiHasLike = false;
     state.apiHasDelete = false;
+    state.apiHasReplied = false;
     return;
   }
   try {
@@ -93,11 +104,13 @@ async function checkApi() {
     state.apiHasSkip = endpoints.includes("skip");
     state.apiHasLike = endpoints.includes("like");
     state.apiHasDelete = endpoints.includes("delete");
+    state.apiHasReplied = endpoints.includes("replied");
   } catch (_) {
     state.apiOnline = false;
     state.apiHasSkip = false;
     state.apiHasLike = false;
     state.apiHasDelete = false;
+    state.apiHasReplied = false;
   }
 }
 
@@ -140,6 +153,7 @@ function queueStatusFromApp(appStatus) {
   if (!appStatus || appStatus === "draft") return "to_apply";
   if (appStatus === "skipped") return "skipped";
   if (appStatus === "replied") return "replied";
+  if (appStatus === "rejected") return "gone";
   if (appStatus === "sent" || appStatus === "toured") return "applied";
   return "other";
 }
@@ -159,6 +173,7 @@ function recalculateCounts() {
     applied: 0,
     replied: 0,
     skipped: 0,
+    gone: 0,
     total: state.data.listings.length,
   };
   for (const item of state.data.listings) {
@@ -166,6 +181,7 @@ function recalculateCounts() {
     else if (item.queueStatus === "applied") counts.applied += 1;
     else if (item.queueStatus === "replied") counts.replied += 1;
     else if (item.queueStatus === "skipped") counts.skipped += 1;
+    else if (item.queueStatus === "gone") counts.gone += 1;
   }
   state.data.counts = { ...state.data.counts, ...counts };
 }
@@ -267,39 +283,110 @@ function highlightLastClickedRow({ scroll = false, pulse = false } = {}) {
   }
 }
 
-function filterLocalDeletes() {
+function applyLocalDeletes() {
   const local = loadLocalDeletes();
   if (!local.size || !state.data?.listings) return;
-  state.data.listings = state.data.listings.filter((item) => !local.has(item.id));
-}
-
-function removeListingFromState(id) {
-  if (!state.data?.listings) return false;
-  const item = state.data.listings.find((row) => row.id === id);
-  if (!item) return false;
-  state.data.listings = state.data.listings.filter((row) => row.id !== id);
-  if (state.data.counts) {
-    const key = item.queueStatus === "to_apply"
-      ? "toApply"
-      : item.queueStatus === "applied"
-        ? "applied"
-        : item.queueStatus === "replied"
-          ? "replied"
-          : item.queueStatus === "skipped"
-            ? "skipped"
-            : null;
-    if (key && state.data.counts[key] !== undefined) {
-      state.data.counts[key] = Math.max(0, (state.data.counts[key] || 0) - 1);
+  for (const item of state.data.listings) {
+    if (local.has(item.id)) {
+      item.appStatus = "rejected";
+      item.queueStatus = "gone";
     }
-    state.data.counts.total = Math.max(0, (state.data.counts.total || 0) - 1);
   }
-  return true;
 }
 
 function parseTime(value) {
   if (!value) return null;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
+}
+
+function localTodayYmd() {
+  const d = new Date();
+  return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate();
+}
+
+function isImmediateMoveIn(label) {
+  const cleaned = String(label || "").trim().toLowerCase().replace(/[!.:;]+$/, "");
+  return cleaned === "available now"
+    || /^available\s+(now|immediately|asap)$/.test(cleaned)
+    || /^(move[- ]?in\s+ready|ready\s+(?:for\s+move[- ]?in|to\s+move)|immediate(?:ly)?|asap|a\.?s\.?a\.?p\.?)$/.test(cleaned);
+}
+
+function parseDisplayMonthDay(label) {
+  const match = String(label || "").trim().match(
+    /^(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?$/i,
+  );
+  if (!match) return null;
+  const month = MONTH_NUMBERS[match[1].toLowerCase()];
+  const day = Number(match[2]);
+  if (!month || !day) return null;
+  const year = inferMoveInYear(month, day, null);
+  return year * 10000 + month * 100 + day;
+}
+
+function inferMoveInYear(month, day, explicitYear) {
+  if (explicitYear != null) {
+    return explicitYear < 100 ? 2000 + explicitYear : explicitYear;
+  }
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const candidates = [];
+  for (const year of [today.getFullYear() - 1, today.getFullYear(), today.getFullYear() + 1]) {
+    const dt = new Date(year, month - 1, day);
+    if (dt.getFullYear() === year && dt.getMonth() === month - 1 && dt.getDate() === day) {
+      candidates.push(dt);
+    }
+  }
+  if (!candidates.length) return today.getFullYear();
+  return candidates.reduce((best, dt) => {
+    const bestDiff = Math.abs(best.getTime() - today.getTime());
+    const dtDiff = Math.abs(dt.getTime() - today.getTime());
+    return dtDiff < bestDiff ? dt : best;
+  }).getFullYear();
+}
+
+function parseMoveInLabel(label) {
+  const cleaned = String(label || "").trim();
+  if (!cleaned || cleaned === "—") return null;
+  if (isImmediateMoveIn(cleaned)) return localTodayYmd();
+
+  const display = parseDisplayMonthDay(cleaned);
+  if (display != null) return display;
+
+  const monthDay = cleaned.match(
+    /\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s*(\d{4}))?\b/i,
+  );
+  if (monthDay) {
+    const month = MONTH_NUMBERS[monthDay[1].toLowerCase()];
+    const day = Number(monthDay[2]);
+    const explicitYear = monthDay[3] ? Number(monthDay[3]) : null;
+    if (month && day) {
+      const year = inferMoveInYear(month, day, explicitYear);
+      return year * 10000 + month * 100 + day;
+    }
+  }
+
+  const slash = cleaned.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  if (slash) {
+    const month = Number(slash[1]);
+    const day = Number(slash[2]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      let explicitYear = slash[3] ? Number(slash[3]) : null;
+      if (explicitYear != null && explicitYear < 100) explicitYear += 2000;
+      const year = inferMoveInYear(month, day, explicitYear);
+      return year * 10000 + month * 100 + day;
+    }
+  }
+
+  return null;
+}
+
+function moveInSortKey(item) {
+  const parsed = parseMoveInLabel(item?.moveInLabel);
+  if (parsed != null) return parsed;
+  const raw = Number(item?.moveInSort);
+  if (Number.isFinite(raw) && raw > 0 && raw < MOVE_IN_SORT_UNKNOWN) return raw;
+  return MOVE_IN_SORT_UNKNOWN;
 }
 
 function statusMeta(item) {
@@ -312,6 +399,8 @@ function statusMeta(item) {
       return { label: "Replied", css: "replied" };
     case "skipped":
       return { label: "Skipped", css: "skipped" };
+    case "gone":
+      return { label: "Gone / rejected", css: "gone" };
     default:
       return { label: item.appStatus || "Other", css: "skipped" };
   }
@@ -341,7 +430,7 @@ function searchBlob(item) {
 
 function passesFilters(item) {
   if (item.queueStatus !== state.tab) return false;
-  if (state.moveInOnly && !item.isMatch) return false;
+
   if (state.likedOnly && !item.liked) return false;
   if (state.source === "facebook" && !item.isFacebook) return false;
   if (state.source === "craigslist" && item.isFacebook) return false;
@@ -363,8 +452,7 @@ function sortValue(item, key) {
       if (Number.isFinite(Number(item.sqftSort))) return Number(item.sqftSort);
       return -1;
     case "movein":
-      if (Number.isFinite(Number(item.moveInSort))) return Number(item.moveInSort);
-      return 999999999;
+      return moveInSortKey(item);
     case "liked":
       return item.liked ? 1 : 0;
     case "score":
@@ -549,9 +637,17 @@ function renderRow(item, index) {
   if (item.queueStatus === "to_apply") {
     actionBtns.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
     actionBtns.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
-  }
-  if (item.queueStatus === "to_apply" || item.queueStatus === "skipped") {
     actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+  }
+  if (item.queueStatus === "skipped") {
+    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+  }
+  if (item.queueStatus === "applied") {
+    actionBtns.push(`<button type="button" class="link-btn replied-btn" data-id="${esc(item.id)}">Replied</button>`);
+    actionBtns.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
+  }
+  if (item.queueStatus === "replied") {
+    actionBtns.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
   }
 
   return `
@@ -606,6 +702,7 @@ function render() {
   els.statApplied.textContent = String(c.applied ?? 0);
   els.statReplied.textContent = String(c.replied ?? 0);
   els.statSkipped.textContent = String(c.skipped ?? 0);
+  if (els.statGone) els.statGone.textContent = String(c.gone ?? 0);
   const total = totalPages(items.length);
   els.rowCount.textContent = items.length
     ? `${pageItems.length} on page · ${items.length} total · page ${state.page}/${total}`
@@ -615,10 +712,10 @@ function render() {
     ? `Generated ${state.data.generatedAt}. Refresh: python listings_page.py`
     : "";
   els.apiHint.textContent = state.apiOnline
-    ? state.apiHasSkip
-      ? "API online — Mark sent / Skip sync to database."
-      : "API online but outdated — restart api.py so Skip works."
-    : "API offline — Apply still works; Mark sent / Skip save in this browser only.";
+    ? state.apiHasSkip && state.apiHasReplied
+      ? "API online — Mark sent / Replied / Gone sync to database."
+      : "API online but outdated — restart api.py for full status sync."
+    : "API offline — Apply still works; status buttons need api.py running locally.";
 
   updateSortHeaders();
   highlightLastClickedRow();
@@ -683,7 +780,7 @@ async function toggleLike(id) {
   }
 }
 
-async function deleteListing(id) {
+async function markGone(id, { label = "Gone" } = {}) {
   const item = (state.data?.listings || []).find((row) => row.id === id);
   if (!item) return;
 
@@ -692,13 +789,13 @@ async function deleteListing(id) {
     const local = loadLocalDeletes();
     local.add(id);
     saveLocalDeletes(local);
-    if (removeListingFromState(id)) {
-      render();
-      toast("Deleted (hidden in this browser)");
-    }
+    applyApplicationStatus(id, "rejected");
+    recalculateCounts();
+    render();
+    toast(`${label} (saved in this browser)`);
     if (!base) return;
     if (!state.apiHasDelete) {
-      toast("Restart api.py to sync delete to database", true);
+      toast("Restart api.py to sync status to database", true);
     }
     return;
   }
@@ -710,12 +807,17 @@ async function deleteListing(id) {
     const local = loadLocalDeletes();
     local.delete(id);
     saveLocalDeletes(local);
-    removeListingFromState(id);
+    applyApplicationStatus(id, json.status || "rejected");
+    recalculateCounts();
     render();
-    toast("Deleted");
+    toast(label);
   } catch (err) {
     toast(String(err.message || err), true);
   }
+}
+
+async function deleteListing(id) {
+  return markGone(id, { label: "Deleted" });
 }
 
 async function markSkipped(id) {
@@ -753,6 +855,29 @@ async function markSkipped(id) {
     recalculateCounts();
     render();
     toast("Skipped");
+  } catch (err) {
+    toast(String(err.message || err), true);
+  }
+}
+
+async function markReplied(id) {
+  const base = apiBase();
+  if (!base) {
+    toast("Start api.py locally to sync status", true);
+    return;
+  }
+  if (!state.apiHasReplied) {
+    toast("Restart api.py — Replied endpoint not loaded", true);
+    return;
+  }
+  try {
+    const res = await fetch(`${base}/api/replied/${encodeURIComponent(id)}`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+    applyApplicationStatus(id, json.status || "replied");
+    recalculateCounts();
+    render();
+    toast("Marked as replied");
   } catch (err) {
     toast(String(err.message || err), true);
   }
@@ -798,10 +923,6 @@ function bindControls() {
   });
   els.maxPrice.addEventListener("input", () => {
     state.maxPrice = els.maxPrice.value;
-    rerenderFromStart();
-  });
-  els.moveInOnly.addEventListener("change", () => {
-    state.moveInOnly = els.moveInOnly.checked;
     rerenderFromStart();
   });
   els.likedOnly.addEventListener("change", () => {
@@ -868,6 +989,16 @@ function bindControls() {
       deleteListing(deleteBtn.dataset.id);
       return;
     }
+    const repliedBtn = event.target.closest(".replied-btn");
+    if (repliedBtn) {
+      markReplied(repliedBtn.dataset.id);
+      return;
+    }
+    const goneBtn = event.target.closest(".gone-btn");
+    if (goneBtn) {
+      markGone(goneBtn.dataset.id);
+      return;
+    }
   });
 }
 
@@ -876,7 +1007,7 @@ async function init() {
   const res = await fetch("./data.json?ts=" + Date.now());
   state.data = await res.json();
   mergeLocalLikes();
-  filterLocalDeletes();
+  applyLocalDeletes();
   await checkApi();
   await syncApplicationStatuses();
   mergeLocalSkips();

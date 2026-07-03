@@ -2,7 +2,7 @@ const state = {
   data: null,
   search: "",
   likedOnly: false,
-  moveInOnly: false,
+
   map: null,
   layer: null,
 };
@@ -18,7 +18,7 @@ function esc(value) {
 function passesFilters(item) {
   if (!Number.isFinite(item.lat) || !Number.isFinite(item.lng)) return false;
   if (state.likedOnly && !item.liked) return false;
-  if (state.moveInOnly && !item.isMatch) return false;
+
   const q = state.search.trim().toLowerCase();
   if (!q) return true;
   const blob = [
@@ -91,10 +91,7 @@ function bindControls() {
     state.likedOnly = event.target.checked;
     renderPins();
   });
-  document.getElementById("filter-move-in").addEventListener("change", (event) => {
-    state.moveInOnly = event.target.checked;
-    renderPins();
-  });
+
 }
 
 async function init() {

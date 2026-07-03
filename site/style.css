@@ -251,6 +251,7 @@ tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge-sent { background: #e8f0fe; color: var(--blue); }
 .badge-replied { background: #e8f5e9; color: var(--green); }
 .badge-skipped { background: #f0f0f2; color: var(--muted); }
+.badge-gone { background: #fce8e6; color: #c5221f; }
 .badge-channel { background: #f0f0f2; color: var(--text); }
 
 .link-btn {

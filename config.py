@@ -21,6 +21,7 @@ SEARCH_CRITERIA = {
     ),
     "move_in_start": date(2026, 7, 20),
     "move_in_end": date(2026, 8, 18),
+    "move_in_hard_reject_after": date(2026, 8, 19),
     "move_in_flex_weeks": 0,
     "use_filter_not_score": True,
     "move_in_window": {
@@ -38,13 +39,15 @@ SEARCH_CRITERIA = {
         "reject_examples": [
             "September 1",
             "after Aug 18",
+            "available after August 19th",
             "before July 20",
             "available now",
             "unknown date",
         ],
         "note": (
             "Hard filter: move-in July 20 – Aug 18. Price up to $1300 OK; $800–$1000 preferred. "
-            "After Aug 18, before late July, 'available now', and unknown dates excluded."
+            "'Available after August 19th' and later are hard rejects. "
+            "Before late July, 'available now', and unknown dates excluded."
         ),
     },
     "room_type": "private_bedroom_or_small_shared_house",
@@ -422,24 +425,16 @@ LOCATION_PREFERENCES = {
                 "bayshore",
                 "22nd street",
                 "22nd st",
-                "south san francisco",
-                "san bruno",
-                "millbrae",
-                "burlingame",
-                "san mateo",
-                "hillsdale",
-                "redwood city",
-                "menlo park",
-                "palo alto",
-                "mountain view",
-                "sunnyvale",
-                "lawrence",
-                "san carlos",
-                "belmont",
             ),
         },
     },
     "penalize": {
+        "south_san_francisco": {
+            "penalty": -38,
+            "flag": "south_sf_penalty",
+            "digest_label": "South SF — ~1hr to Market",
+            "terms": ("south san francisco", "ssf", "94080", "94083"),
+        },
         "outer_sf": {
             "penalty": -22,
             "flag": "outer_sf_penalty",
@@ -549,22 +544,6 @@ TRANSIT_PREFERENCES = {
                 "bayshore",
                 "22nd street",
                 "22nd st",
-                "south san francisco",
-                "san bruno",
-                "millbrae",
-                "burlingame",
-                "san mateo",
-                "redwood city",
-                "menlo park",
-                "palo alto",
-                "mountain view",
-                "sunnyvale",
-                "lawrence",
-                "hillsdale",
-                "san carlos",
-                "belmont",
-                "san jose diridon",
-                "peninsula",
             ),
         },
         "bart": {

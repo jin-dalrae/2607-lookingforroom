@@ -20,6 +20,7 @@ from db import (
     get_listing_by_id,
     init_db,
     mark_application_rejected,
+    mark_application_replied,
     mark_application_sent,
     mark_application_skipped,
     set_listing_liked,
@@ -90,7 +91,15 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "gmail": gmail_configured(),
                     "message": "Apply API ready",
-                    "endpoints": ["draft", "sent", "skip", "like", "delete", "statuses"],
+                    "endpoints": [
+                        "draft",
+                        "sent",
+                        "replied",
+                        "skip",
+                        "like",
+                        "delete",
+                        "statuses",
+                    ],
                 },
             )
             return
@@ -111,6 +120,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         draft_match = re.match(r"^/api/draft/([^/]+)$", path)
         sent_match = re.match(r"^/api/sent/([^/]+)$", path)
+        replied_match = re.match(r"^/api/replied/([^/]+)$", path)
         skip_match = re.match(r"^/api/skip/([^/]+)$", path)
         like_match = re.match(r"^/api/like/([^/]+)$", path)
         delete_match = re.match(r"^/api/delete/([^/]+)$", path)
@@ -122,6 +132,10 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         if sent_match:
             listing_id = sent_match.group(1)
             self._handle_sent(listing_id)
+            return
+        if replied_match:
+            listing_id = replied_match.group(1)
+            self._handle_replied(listing_id)
             return
         if skip_match:
             listing_id = skip_match.group(1)
@@ -256,6 +270,22 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, UnicodeDecodeError):
             return {}
 
+    def _handle_replied(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+        app = mark_application_replied(listing["id"])
+        _json_response(
+            self,
+            200,
+            {"ok": True, "status": app["status"] if app else "replied"},
+        )
+
     def _handle_sent(self, listing_id: str) -> None:
         if not ID_RE.match(listing_id):
             _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
@@ -285,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  GET  /api/health")
     print("  POST /api/draft/<listing_id>")
     print("  POST /api/sent/<listing_id>")
+    print("  POST /api/replied/<listing_id>")
     print("  POST /api/skip/<listing_id>")
     print("  POST /api/like/<listing_id>")
     print("  POST /api/delete/<listing_id>")

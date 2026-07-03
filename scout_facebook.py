@@ -38,6 +38,8 @@ JUNK_TITLES = frozenset(
 )
 
 
+
+
 @dataclass
 class FacebookCard:
     url: str
@@ -94,6 +96,12 @@ def _is_junk_title(title: str) -> bool:
     return (title or "").strip().lower() in JUNK_TITLES
 
 
+def is_junk_facebook_title(title: str) -> bool:
+    from listing_description import is_junk_facebook_title as _is_junk_fb_title
+
+    return _is_junk_fb_title(title) or _is_junk_title(title)
+
+
 def _parse_card_text(text: str) -> tuple[str, int | None, str, str]:
     from locations import parse_location_line
 
@@ -129,6 +137,16 @@ def _parse_card_text(text: str) -> tuple[str, int | None, str, str]:
     if not title or _is_junk_title(title):
         title = "Facebook Marketplace listing"
     return title[:200], price, location_line, listed_phrase
+
+
+def _card_neighborhood(card: FacebookCard) -> str:
+    """Prefer the rental city from the search card over the search-feed label."""
+    if card.location_line:
+        from locations import resolve_neighborhood_from_text
+
+        blob = _card_description_blob(location_line=card.location_line) or ""
+        return resolve_neighborhood_from_text(description=blob, fallback=card.location_line)
+    return card.neighborhood
 
 
 def _card_description_blob(
@@ -275,6 +293,83 @@ def _extract_marketplace_body_text(page: Any, og_description: str) -> str:
     return (og_description or "")[:4000]
 
 
+def _extract_labeled_value_from_page(page: Any, labels: tuple[str, ...]) -> str:
+    """Read the line after a Marketplace PDP label (e.g. Rental location, Availability)."""
+    try:
+        value = page.evaluate(
+            """(labels) => {
+              const wanted = labels.map((l) => l.toLowerCase());
+              const body = (document.body && document.body.innerText) || '';
+              const lines = body.split('\\n').map((l) => l.trim()).filter(Boolean);
+              for (let i = 0; i < lines.length; i++) {
+                const low = lines[i].toLowerCase();
+                if (wanted.includes(low) && lines[i + 1]) {
+                  return lines[i + 1];
+                }
+              }
+              for (const el of document.querySelectorAll('span, div')) {
+                const t = (el.innerText || '').trim();
+                if (!t) continue;
+                if (!wanted.includes(t.toLowerCase())) continue;
+                const parent = el.parentElement;
+                if (!parent) continue;
+                const parts = (parent.innerText || '').split('\\n').map((l) => l.trim()).filter(Boolean);
+                const idx = parts.findIndex((p) => wanted.includes(p.toLowerCase()));
+                if (idx >= 0 && parts[idx + 1]) return parts[idx + 1];
+              }
+              return '';
+            }""",
+            list(labels),
+        )
+        return str(value or "").strip()
+    except Exception:
+        return ""
+
+
+def _extract_rental_location_from_page(page: Any) -> str:
+    """Read the Rental location field from a Marketplace item page."""
+    from locations import is_junk_location_line, parse_location_line
+
+    candidate = _extract_labeled_value_from_page(page, ("Rental location",))
+    if candidate and not is_junk_location_line(candidate):
+        return (parse_location_line(candidate) or candidate).strip()
+    return ""
+
+
+def _extract_move_in_from_page(page: Any) -> str:
+    """Read availability / move-in from a Marketplace rental PDP."""
+    from listing_move_in import is_boilerplate_move_in_phrase
+
+    for label_group in (
+        ("Availability", "Available", "Date available"),
+        ("Move-in date", "Move in date"),
+    ):
+        candidate = _extract_labeled_value_from_page(page, label_group)
+        if not candidate or len(candidate) > 80:
+            continue
+        if is_boilerplate_move_in_phrase(candidate):
+            continue
+        return candidate
+    return ""
+
+
+def _compose_facebook_description(
+    *,
+    rental_address: str = "",
+    move_in_phrase: str = "",
+    body_text: str | None = None,
+) -> str | None:
+    """Keep structured PDP fields even when the post body is Marketplace chrome."""
+    parts: list[str] = []
+    if rental_address:
+        parts.append(f"Rental Location\n{rental_address}")
+    if move_in_phrase:
+        parts.append(f"Availability\n{move_in_phrase}")
+    if body_text:
+        parts.append(body_text.strip())
+    return "\n\n".join(parts) if parts else None
+
+
 def _prepare_detail_page(page: Any) -> None:
     """Skip images/media so detail fetches stay text-only and faster."""
 
@@ -327,15 +422,27 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
 
     body_text = _extract_marketplace_body_text(page, description)
     price = _parse_price(body_text) or _parse_price(title) or _parse_price(description)
-    raw_description = body_text or description or None
+    page_rental_location = _extract_rental_location_from_page(page)
+    page_move_in = _extract_move_in_from_page(page)
+
+    body_clean = clean_listing_description(body_text or description or None)
+    raw_description = _compose_facebook_description(
+        rental_address=page_rental_location,
+        move_in_phrase=page_move_in,
+        body_text=body_clean,
+    )
 
     fb_fields = parse_facebook_listing_fields(raw_description or "")
-    rental_address = fb_fields.get("rental_address") or ""
+    rental_address = fb_fields.get("rental_address") or page_rental_location or ""
     if rental_address and raw_description and "rental location" not in raw_description.lower():
-        raw_description = f"Rental Location\n{rental_address}\n\n{raw_description}"
-        fb_fields = parse_facebook_listing_fields(raw_description)
+        raw_description = _compose_facebook_description(
+            rental_address=rental_address,
+            move_in_phrase=page_move_in,
+            body_text=body_clean,
+        )
+        fb_fields = parse_facebook_listing_fields(raw_description or "")
 
-    description = clean_listing_description(raw_description)
+    description = raw_description
     rental_address = fb_fields.get("rental_address") or rental_address
     neighborhood = resolve_neighborhood_from_text(
         title=title,
@@ -343,10 +450,22 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         fallback=fb_fields.get("display_place") or "Unknown",
     )
 
-    if _is_junk_title(title):
+    if is_junk_facebook_title(title):
         title = "Facebook Marketplace listing"
 
     posted_at = parse_posted_at(body_text or raw_description or "")
+
+    from listing_move_in import resolve_move_in_date_storage
+
+    move_in_date = resolve_move_in_date_storage(
+        {
+            "title": title,
+            "description": raw_description,
+            "move_in_date": None,
+            "first_seen": None,
+            "last_seen": None,
+        }
+    )
 
     return {
         "listing_id": _listing_id_from_url(url),
@@ -356,6 +475,7 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         "neighborhood": neighborhood,
         "rental_address": rental_address or None,
         "description": description,
+        "move_in_date": move_in_date or None,
         "posted_at": posted_at,
     }
 
@@ -375,6 +495,7 @@ def _merge_card_and_details(card: FacebookCard, details: dict[str, Any]) -> dict
         "description": details.get("description"),
         "posted_at": details.get("posted_at"),
         "rental_address": details.get("rental_address"),
+        "move_in_date": details.get("move_in_date"),
     }
 
 
@@ -421,6 +542,7 @@ def ingest_url(url: str, *, headless: bool = True) -> dict[str, Any]:
         price=details["price"],
         neighborhood=details["neighborhood"],
         description=details["description"],
+        move_in_date=details.get("move_in_date"),
         posted_at=details.get("posted_at"),
         rental_address=details.get("rental_address"),
         source="facebook",
@@ -460,7 +582,10 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                     seen_urls.add(card.url)
                     counts["cards"] += 1
                     try:
-                        fetch_details = with_details and _needs_detail_fetch(card)
+                        existing = get_listing_by_url(card.url)
+                        fetch_details = existing is None or (
+                            with_details and _needs_detail_fetch(card)
+                        )
                         if fetch_details:
                             if counts["details"] > 0:
                                 time.sleep(DETAIL_DELAY_SEC)
@@ -474,6 +599,7 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                                 price=merged["price"],
                                 neighborhood=merged["neighborhood"],
                                 description=merged["description"],
+                                move_in_date=merged.get("move_in_date"),
                                 posted_at=merged.get("posted_at"),
                                 rental_address=merged.get("rental_address"),
                                 source="facebook",
@@ -490,7 +616,7 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                                 url=card.url,
                                 title=card.title,
                                 price=card.price,
-                                neighborhood=card.neighborhood,
+                                neighborhood=_card_neighborhood(card),
                                 description=card_description,
                                 posted_at=parse_posted_at(card_description or card.card_text or ""),
                                 rental_address=card.location_line or None,
@@ -510,15 +636,6 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
     return counts
 
 
-JUNK_FB_TITLES = frozenset(
-    {
-        "notifications",
-        "notification",
-        "facebook marketplace listing",
-    }
-)
-
-
 def refetch_junk_titles(*, limit: int | None = None, headless: bool = True) -> dict[str, int]:
     """Re-fetch Facebook listings stuck with placeholder titles."""
     from playwright.sync_api import sync_playwright
@@ -529,8 +646,13 @@ def refetch_junk_titles(*, limit: int | None = None, headless: bool = True) -> d
     query = """
         SELECT url FROM listings
         WHERE source = 'facebook'
-          AND lower(trim(coalesce(title, ''))) IN (
-              'notifications', 'notification', 'facebook marketplace listing'
+          AND (
+              lower(trim(coalesce(title, ''))) IN (
+                  'notifications', 'notification', 'facebook marketplace listing'
+              )
+              OR lower(title) LIKE '%marketplace -%'
+              OR lower(title) LIKE '%(1) marketplace%'
+              OR lower(title) LIKE '%(2) marketplace%'
           )
         ORDER BY last_seen DESC
     """
@@ -559,9 +681,12 @@ def refetch_junk_titles(*, limit: int | None = None, headless: bool = True) -> d
                         time.sleep(DETAIL_DELAY_SEC)
                     details = fetch_listing_details(page, url)
                     title = (details.get("title") or "").strip()
-                    if _is_junk_title(title) or title.lower() in JUNK_FB_TITLES:
+                    if is_junk_facebook_title(title):
                         counts["unchanged"] += 1
                         continue
+                    from db import delete_score
+
+                    delete_score(details["listing_id"])
                     outcome = upsert_listing(
                         listing_id=details["listing_id"],
                         url=details["url"],
@@ -569,6 +694,7 @@ def refetch_junk_titles(*, limit: int | None = None, headless: bool = True) -> d
                         price=details.get("price"),
                         neighborhood=details.get("neighborhood"),
                         description=details.get("description"),
+                        move_in_date=details.get("move_in_date"),
                         posted_at=details.get("posted_at"),
                         rental_address=details.get("rental_address"),
                         source="facebook",
@@ -599,7 +725,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     poll.add_argument(
         "--with-details",
         action="store_true",
-        help="Fetch each listing page (slow; usually unnecessary)",
+        help="Also re-fetch existing listings missing location or description (new listings always get one detail fetch)",
     )
 
     ingest = sub.add_parser("ingest", help="Import one Marketplace item URL")
@@ -609,6 +735,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     fix = sub.add_parser("fix-titles", help="Re-fetch junk Facebook titles (e.g. Notifications)")
     fix.add_argument("--headed", action="store_true")
     fix.add_argument("--limit", type=int, default=None)
+
+    backfill = sub.add_parser(
+        "backfill",
+        help="Fetch Facebook detail pages for rows missing location or description",
+    )
+    backfill.add_argument("--headed", action="store_true")
+    backfill.add_argument("--limit", type=int, default=50)
+    backfill.add_argument(
+        "--all",
+        action="store_true",
+        help="Backfill any Facebook row needing details, not only queue listings",
+    )
 
     return parser.parse_args(argv)
 
@@ -662,6 +800,34 @@ def main(argv: list[str] | None = None) -> int:
 
                 listing_filter.run(rescore_all=True, use_gemini=False)
             return 0 if not counts["errors"] else 1
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+
+    if args.command == "backfill":
+        if not session_configured():
+            print(login_instructions(), file=sys.stderr)
+            return 1
+        try:
+            from db import backfill_facebook_details, purge_premature_facebook_scores
+
+            purged = purge_premature_facebook_scores()
+            if purged:
+                print(f"Cleared {purged} premature Facebook score(s).")
+            stats = backfill_facebook_details(
+                limit=args.limit,
+                queue_only=not args.all,
+            )
+            print(
+                f"Done. fetched={stats['fetched']} updated={stats['updated']} "
+                f"unchanged={stats['unchanged']} errors={stats['errors']} "
+                f"rescored={stats.get('rescored', 0)}"
+            )
+            if stats.get("rescored", 0) or stats.get("updated", 0):
+                import filter as listing_filter
+
+                listing_filter.run()
+            return 0 if not stats["errors"] else 1
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
