@@ -10,10 +10,12 @@ const state = {
   sortDir: -1,
   apiOnline: false,
   apiHasLike: false,
+  apiHasDelete: false,
 };
 
 const LIKED_STORAGE_KEY = "queue-liked-ids";
 const SKIPPED_STORAGE_KEY = "queue-skipped-ids";
+const DELETED_STORAGE_KEY = "queue-deleted-ids";
 
 const els = {
   tbody: document.getElementById("queue-body"),
@@ -73,6 +75,7 @@ async function checkApi() {
     state.apiOnline = false;
     state.apiHasSkip = false;
     state.apiHasLike = false;
+    state.apiHasDelete = false;
     return;
   }
   try {
@@ -82,10 +85,12 @@ async function checkApi() {
     const endpoints = Array.isArray(json.endpoints) ? json.endpoints : [];
     state.apiHasSkip = endpoints.includes("skip");
     state.apiHasLike = endpoints.includes("like");
+    state.apiHasDelete = endpoints.includes("delete");
   } catch (_) {
     state.apiOnline = false;
     state.apiHasSkip = false;
     state.apiHasLike = false;
+    state.apiHasDelete = false;
   }
 }
 
@@ -143,6 +148,49 @@ function applySkipToItem(id) {
   if (state.data?.counts && wasToApply) {
     state.data.counts.toApply = Math.max(0, (state.data.counts.toApply || 0) - 1);
     state.data.counts.skipped = (state.data.counts.skipped || 0) + 1;
+  }
+  return true;
+}
+
+function loadLocalDeletes() {
+  try {
+    const raw = localStorage.getItem(DELETED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function saveLocalDeletes(ids) {
+  localStorage.setItem(DELETED_STORAGE_KEY, JSON.stringify([...ids]));
+}
+
+function filterLocalDeletes() {
+  const local = loadLocalDeletes();
+  if (!local.size || !state.data?.listings) return;
+  state.data.listings = state.data.listings.filter((item) => !local.has(item.id));
+}
+
+function removeListingFromState(id) {
+  if (!state.data?.listings) return false;
+  const item = state.data.listings.find((row) => row.id === id);
+  if (!item) return false;
+  state.data.listings = state.data.listings.filter((row) => row.id !== id);
+  if (state.data.counts) {
+    const key = item.queueStatus === "to_apply"
+      ? "toApply"
+      : item.queueStatus === "applied"
+        ? "applied"
+        : item.queueStatus === "replied"
+          ? "replied"
+          : item.queueStatus === "skipped"
+            ? "skipped"
+            : null;
+    if (key && state.data.counts[key] !== undefined) {
+      state.data.counts[key] = Math.max(0, (state.data.counts[key] || 0) - 1);
+    }
+    state.data.counts.total = Math.max(0, (state.data.counts.total || 0) - 1);
   }
   return true;
 }
@@ -288,6 +336,9 @@ function renderRow(item, index) {
   if (item.queueStatus === "to_apply") {
     actionBtns.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
     actionBtns.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
+  }
+  if (item.queueStatus === "to_apply" || item.queueStatus === "skipped") {
+    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
   }
 
   const detailRow = `
@@ -469,6 +520,45 @@ async function toggleLike(id) {
   }
 }
 
+async function deleteListing(id) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item) return;
+  const label = item.title || "this listing";
+  if (!window.confirm(`Delete "${label}" permanently? It will not return on refresh.`)) {
+    return;
+  }
+
+  const base = apiBase();
+  if (!base || !state.apiHasDelete) {
+    const local = loadLocalDeletes();
+    local.add(id);
+    saveLocalDeletes(local);
+    if (removeListingFromState(id)) {
+      render();
+      toast("Deleted (hidden in this browser)");
+    }
+    if (!base) return;
+    if (!state.apiHasDelete) {
+      toast("Restart api.py to sync delete to database", true);
+    }
+    return;
+  }
+
+  try {
+    const res = await fetch(`${base}/api/delete/${encodeURIComponent(id)}`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+    const local = loadLocalDeletes();
+    local.delete(id);
+    saveLocalDeletes(local);
+    removeListingFromState(id);
+    render();
+    toast("Deleted");
+  } catch (err) {
+    toast(String(err.message || err), true);
+  }
+}
+
 async function markSkipped(id) {
   const base = apiBase();
 
@@ -595,6 +685,11 @@ function bindControls() {
       markSkipped(skipBtn.dataset.id);
       return;
     }
+    const deleteBtn = event.target.closest(".delete-btn");
+    if (deleteBtn) {
+      deleteListing(deleteBtn.dataset.id);
+      return;
+    }
     const toggleBtn = event.target.closest(".toggle-detail");
     if (toggleBtn) {
       const detail = detailFor(toggleBtn.dataset.index);
@@ -608,6 +703,7 @@ async function init() {
   state.data = await res.json();
   mergeLocalLikes();
   mergeLocalSkips();
+  filterLocalDeletes();
   await checkApi();
   bindControls();
   render();

@@ -18,6 +18,7 @@ from db import (
     _listing_with_score,
     get_listing_by_id,
     init_db,
+    mark_application_rejected,
     mark_application_sent,
     mark_application_skipped,
     set_listing_liked,
@@ -88,7 +89,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "gmail": gmail_configured(),
                     "message": "Apply API ready",
-                    "endpoints": ["draft", "sent", "skip", "like"],
+                    "endpoints": ["draft", "sent", "skip", "like", "delete"],
                 },
             )
             return
@@ -104,6 +105,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         sent_match = re.match(r"^/api/sent/([^/]+)$", path)
         skip_match = re.match(r"^/api/skip/([^/]+)$", path)
         like_match = re.match(r"^/api/like/([^/]+)$", path)
+        delete_match = re.match(r"^/api/delete/([^/]+)$", path)
 
         if draft_match:
             listing_id = draft_match.group(1)
@@ -120,6 +122,10 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         if like_match:
             listing_id = like_match.group(1)
             self._handle_like(listing_id)
+            return
+        if delete_match:
+            listing_id = delete_match.group(1)
+            self._handle_delete(listing_id)
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
 
@@ -215,6 +221,22 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             return
         _json_response(self, 200, {"ok": True, "liked": liked})
 
+    def _handle_delete(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+        app = mark_application_rejected(listing["id"])
+        _json_response(
+            self,
+            200,
+            {"ok": True, "status": app["status"] if app else "rejected"},
+        )
+
     def _read_json_body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
         if length <= 0:
@@ -257,6 +279,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  POST /api/sent/<listing_id>")
     print("  POST /api/skip/<listing_id>")
     print("  POST /api/like/<listing_id>")
+    print("  POST /api/delete/<listing_id>")
     if not gmail_configured():
         print("  warning: Gmail not configured — email drafts will fail", file=sys.stderr)
     try:

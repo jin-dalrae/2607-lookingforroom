@@ -228,6 +228,8 @@ tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .link-btn:hover { background: #e8e8ed; }
 .link-btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
 .link-btn.primary:hover { background: #0077ed; }
+.link-btn.danger { color: var(--red); border-color: #f5c2c7; background: #fff5f5; }
+.link-btn.danger:hover { background: #ffe8ea; }
 .link-btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
 tr.detail-row td {

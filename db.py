@@ -474,6 +474,9 @@ def get_pool_listings(
             FROM listings l
             INNER JOIN scores s ON l.id = s.listing_id
             WHERE 1=1 {scam_clause}
+              AND l.id NOT IN (
+                  SELECT listing_id FROM applications WHERE status = 'rejected'
+              )
             ORDER BY s.score DESC, l.price ASC
             LIMIT 500
             """,
@@ -991,6 +994,39 @@ def mark_application_skipped(
                 WHERE listing_id = ?
                 """,
                 (now, listing_id),
+            )
+        conn.commit()
+    return get_application_by_listing_id(listing_id)
+
+
+def mark_application_rejected(
+    listing_id: str,
+    *,
+    notes: str | None = "deleted from queue",
+) -> dict[str, Any] | None:
+    """Permanently remove a listing from the apply pool."""
+    init_db()
+    now = _utcnow()
+    existing = get_application_by_listing_id(listing_id)
+
+    with get_connection() as conn:
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO applications
+                    (listing_id, status, draft_text, notes, channel, created_at, updated_at)
+                VALUES (?, 'rejected', '', ?, NULL, ?, ?)
+                """,
+                (listing_id, notes, now, now),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE applications
+                SET status = 'rejected', notes = COALESCE(?, notes), updated_at = ?
+                WHERE listing_id = ?
+                """,
+                (notes, now, listing_id),
             )
         conn.commit()
     return get_application_by_listing_id(listing_id)
