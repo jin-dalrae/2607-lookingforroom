@@ -16,7 +16,12 @@ from db import (
     get_queue_export_listings,
     init_db,
 )
-from listing_dates import format_timestamp_label, posted_label, resolve_posted_at
+from listing_dates import (
+    format_timestamp_label,
+    is_estimated_posted,
+    posted_label,
+    resolve_posted_at,
+)
 from map_coords import resolve_listing_coords
 from locations import listing_location_context, resolve_listing_place
 from match import listing_matches_criteria
@@ -110,9 +115,10 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     display_neighborhood = place.get("display_place") or row.get("neighborhood") or "Unknown"
     sqft_label = extract_sqft_from_post(row)
 
-    stored_posted = row.get("posted_at")
     posted_at = resolve_posted_at(row)
-    posted_estimated = not stored_posted and bool(posted_at)
+    posted_estimated = not posted_at or is_estimated_posted(
+        {**row, "posted_at": posted_at or row.get("posted_at")}
+    )
     scraped_at = row.get("last_seen")
     coords = resolve_listing_coords(
         {
@@ -195,7 +201,7 @@ def write_queue_data(path=None) -> __import__("pathlib").Path:
     from db import backfill_posted_at, backfill_rental_addresses
 
     backfill_rental_addresses()
-    backfill_posted_at(remote_limit=40)
+    backfill_posted_at(remote_limit=200)
     target = path or OUTPUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = build_queue_payload()

@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 _LISTED_RE = re.compile(
-    r"listed\s+(?:(\d+)\s+days?\s+ago|yesterday|today|a\s+week\s+ago|(\d+)\s+hours?\s+ago)",
+    r"listed\s+(?:(\d+)\s+days?\s+ago|yesterday|today|a\s+week\s+ago|(\d+)\s+hours?\s+ago|(\d+)\s+minutes?\s+ago)",
     re.IGNORECASE,
 )
 _CL_POSTED_RE = re.compile(
@@ -90,6 +90,8 @@ def parse_posted_at(
             posted = ref - timedelta(days=int(listed.group(1)))
         elif listed.group(2):
             posted = ref - timedelta(hours=int(listed.group(2)))
+        elif listed.group(3):
+            posted = ref - timedelta(minutes=int(listed.group(3)))
         else:
             posted = None
         if posted is not None:
@@ -114,19 +116,79 @@ def parse_posted_at(
     return None
 
 
+def is_estimated_posted(row: dict[str, Any]) -> bool:
+    """True when posted_at is just our first scrape time, not the listing date."""
+    posted = row.get("posted_at")
+    first_seen = row.get("first_seen")
+    if not posted:
+        return True
+    if first_seen and str(posted) == str(first_seen):
+        return True
+    return False
+
+
 def resolve_posted_at(row: dict[str, Any]) -> str | None:
-    """Return stored posted_at or parse from description as fallback."""
+    """Return stored posted_at or parse from description. Never use first_seen."""
     stored = row.get("posted_at")
-    if stored:
+    if stored and not is_estimated_posted(row):
         return str(stored)
     blob = " ".join(
         str(row.get(k) or "") for k in ("description", "title")
     )
     parsed = parse_posted_at(blob)
-    if parsed:
-        return parsed
-    first_seen = row.get("first_seen")
-    return str(first_seen) if first_seen else None
+    return parsed
+
+
+def fetch_craigslist_posted_at(url: str) -> str | None:
+    """Fetch exact posted datetime from a Craigslist listing page."""
+    if not url:
+        return None
+    try:
+        import requests
+        from bs4 import BeautifulSoup
+    except ImportError:
+        return None
+
+    try:
+        response = requests.get(
+            url,
+            timeout=12,
+            headers={
+                "User-Agent": (
+                    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/120.0.0.0 Safari/537.36"
+                )
+            },
+        )
+        response.raise_for_status()
+        soup = BeautifulSoup(response.text, "html.parser")
+        time_el = soup.select_one("time.date.timeago")
+        if time_el and time_el.get("datetime"):
+            posted_at = normalize_iso_timestamp(time_el["datetime"])
+            if posted_at:
+                return posted_at
+        blob = " ".join(
+            info.get_text(" ", strip=True)
+            for info in soup.select("p.postinginfo")
+        )
+        return parse_posted_at(blob)
+    except Exception:
+        return None
+
+
+def format_exact_timestamp(iso_value: str | None) -> str:
+    """Exact local date + time for table display."""
+    if not iso_value:
+        return "Unknown"
+    try:
+        dt = datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
+    except ValueError:
+        return str(iso_value)[:16]
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    local = dt.astimezone()
+    return local.strftime("%b %-d, %Y %-I:%M %p")
 
 
 def posted_label(
@@ -134,10 +196,9 @@ def posted_label(
     *,
     estimated: bool = False,
 ) -> str:
-    label = format_timestamp_label(iso_value)
-    if estimated and label != "Unknown":
-        return f"{label} (est.)"
-    return label
+    if not iso_value or estimated:
+        return "Unknown" if not iso_value else f"{format_exact_timestamp(iso_value)} (est.)"
+    return format_exact_timestamp(iso_value)
 
 
 def format_timestamp_label(iso_value: str | None) -> str:

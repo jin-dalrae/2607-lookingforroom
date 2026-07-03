@@ -256,9 +256,12 @@ def upsert_listing(
         if move_in_date is not None and move_in_date != existing["move_in_date"]:
             updates["move_in_date"] = move_in_date
             changed = True
-        if posted_at is not None and posted_at != existing["posted_at"]:
-            updates["posted_at"] = posted_at
-            changed = True
+        if posted_at is not None:
+            from listing_dates import is_estimated_posted
+
+            if is_estimated_posted(existing) or posted_at != existing.get("posted_at"):
+                updates["posted_at"] = posted_at
+                changed = True
         if rental_address is not None and rental_address != existing["rental_address"]:
             updates["rental_address"] = rental_address
             changed = True
@@ -575,17 +578,25 @@ def backfill_rental_addresses(*, limit: int | None = None) -> int:
 def backfill_posted_at(
     *,
     limit: int | None = None,
-    remote_limit: int = 40,
+    remote_limit: int = 200,
 ) -> dict[str, int]:
-    """Fill missing posted_at from text, first_seen, or Craigslist re-fetch."""
-    from listing_dates import normalize_iso_timestamp, parse_posted_at
+    """Fill exact posted_at from listing text or Craigslist page datetime."""
+    import time
+
+    from listing_dates import (
+        fetch_craigslist_posted_at,
+        is_estimated_posted,
+        parse_posted_at,
+    )
 
     init_db()
     with get_connection() as conn:
         query = """
             SELECT id, url, title, description, posted_at, first_seen, source
             FROM listings
-            WHERE posted_at IS NULL OR trim(posted_at) = ''
+            WHERE posted_at IS NULL
+               OR trim(posted_at) = ''
+               OR posted_at = first_seen
             ORDER BY last_seen DESC
         """
         params: tuple[Any, ...] = ()
@@ -594,11 +605,14 @@ def backfill_posted_at(
             params = (limit,)
         rows = conn.execute(query, params).fetchall()
 
-    stats = {"parsed": 0, "estimated": 0, "fetched": 0, "unchanged": 0}
+    stats = {"parsed": 0, "fetched": 0, "unchanged": 0}
     remote_budget = remote_limit
 
     for row in rows:
         listing = dict(row)
+        if not is_estimated_posted(listing) and listing.get("posted_at"):
+            continue
+
         posted_at = parse_posted_at(
             " ".join(
                 str(listing.get(k) or "")
@@ -613,42 +627,13 @@ def backfill_posted_at(
             and str(listing.get("source") or "") == "craigslist"
             and listing.get("url")
         ):
-            try:
-                import requests
-                from bs4 import BeautifulSoup
+            posted_at = fetch_craigslist_posted_at(listing["url"])
+            if posted_at:
+                source = "fetched"
+                remote_budget -= 1
+                time.sleep(0.2)
 
-                response = requests.get(
-                    listing["url"],
-                    timeout=12,
-                    headers={
-                        "User-Agent": (
-                            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                            "AppleWebKit/537.36 (KHTML, like Gecko) "
-                            "Chrome/120.0.0.0 Safari/537.36"
-                        )
-                    },
-                )
-                response.raise_for_status()
-                soup = BeautifulSoup(response.text, "html.parser")
-                time_el = soup.select_one("time.date.timeago")
-                if time_el and time_el.get("datetime"):
-                    posted_at = normalize_iso_timestamp(time_el["datetime"])
-                if not posted_at:
-                    blob = " ".join(
-                        info.get_text(" ", strip=True)
-                        for info in soup.select("p.postinginfo")
-                    )
-                    posted_at = parse_posted_at(blob)
-                if posted_at:
-                    source = "fetched"
-                    remote_budget -= 1
-            except Exception:
-                pass
-
-        if not posted_at and listing.get("first_seen"):
-            posted_at = str(listing["first_seen"])
-            source = "estimated"
-        elif not posted_at:
+        if not posted_at:
             stats["unchanged"] += 1
             continue
 
