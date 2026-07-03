@@ -349,7 +349,7 @@ def _is_short_term_listing(flags_json: str | None) -> bool:
     if parsed.get("short_term_reject"):
         return True
     rent_period = str(parsed.get("rent_period") or "").lower()
-    return rent_period in ("weekly", "daily")
+    return rent_period in ("weekly", "daily", "sublet")
 
 
 def mark_listing_unavailable(
@@ -479,7 +479,7 @@ def get_pool_listings(
         if exclude_short_term:
             if payload.get("short_term_reject"):
                 continue
-            if str(payload.get("rent_period") or "").lower() in ("weekly", "daily"):
+            if str(payload.get("rent_period") or "").lower() in ("weekly", "daily", "sublet"):
                 continue
         room_flags = payload.get("flags") or []
         if not isinstance(room_flags, list):

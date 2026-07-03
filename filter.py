@@ -288,7 +288,7 @@ ROOM_TYPE_VALUES = (
     "sro_reject",
 )
 
-RENT_PERIOD_VALUES = ("monthly", "weekly", "daily", "unknown")
+RENT_PERIOD_VALUES = ("monthly", "weekly", "daily", "sublet", "unknown")
 
 _WEEKLY_RENT_RE = re.compile(
     r"(?:"
@@ -330,9 +330,48 @@ _MONTHLY_RENT_RE = re.compile(
 )
 
 _SHORT_TERM_SIGNAL_RE = re.compile(
-    r"(?:short[- ]?term(?:\s+sublet)?|temporary\s+sublet|vacation\s+rental|"
-    r"sublet\s+for\s+\d+\s+(?:day|days|week|weeks))",
+    r"(?:short[- ]?term\s+sub(?:let|lease)|temporary\s+sub(?:let|lease)|vacation\s+rental|"
+    r"sub(?:let|lease)\s+for\s+\d+\s+(?:day|days|week|weeks))",
     re.IGNORECASE,
+)
+
+_LONGER_TERM_OPTION_RE = re.compile(
+    r"(?:\b(?:3|6|9|12)\s*[- ]?month\s+minimum\b|\bone\s+year\b|\b1[- ]?year\b|\b9[- ]?month\b)",
+    re.IGNORECASE,
+)
+
+_LONG_TERM_SUBLET_OK_RE = re.compile(
+    r"long[- ]?term\s+sub(?:let|lease)",
+    re.IGNORECASE,
+)
+
+_MONTH_SUBLET_TITLE_RE = re.compile(
+    r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+    r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|"
+    r"dec(?:ember)?)\s+sub(?:let|lease)\b",
+    re.IGNORECASE,
+)
+
+_TITLE_DATE_RANGE_SUBLET_RE = re.compile(
+    r"sub(?:let|lease)\s+\d{1,2}/\d{1,2}\s*[-–]\s*\d{1,2}/\d{1,2}",
+    re.IGNORECASE,
+)
+
+_SHORT_SUBLEASE_RES = (
+    re.compile(
+        r"subleas(?:e|ing)\s+(?:my\s+)?(?:room|bedroom|place|apartment|unit)\s+for\s+"
+        r"(?:a\s+)?couple\s+(?:of\s+)?weeks",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b\d{1,3}\s+nights?\b", re.IGNORECASE),
+    re.compile(r"flat\s+for\s+the\s+stay", re.IGNORECASE),
+    re.compile(r"\bfor\s+the\s+stay\b", re.IGNORECASE),
+    re.compile(r"while\s+i['']?m\s+away", re.IGNORECASE),
+    re.compile(
+        r"dates?:\s*.{0,80}?\bto\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"vacation\s+sub(?:let|lease)", re.IGNORECASE),
 )
 
 _MIN_ROOM_SQFT = 50
@@ -542,6 +581,7 @@ Output schema:
 
 Scoring guidance:
 - Reject commercial office/workspace subleases (office sublease, coworking, shared workspace, desk rental). Residential rooms with a home office nook are OK.
+- Reject short residential subleases/sublets: single-month sublets, a few weeks, fixed night counts, "flat for the stay", date ranges under ~2 months. Long-term sublets are OK.
 - User needs MONTHLY rent only. Detect rent period from title/description/price:
   weekly signals: "per week", "/week", "weekly", "wk", "a week", "$650/week"
   daily/nightly: "per night", "/night", "daily", "nightly", "$49/day", "airbnb"
@@ -944,7 +984,38 @@ def _is_sf_oakland_area(text: str) -> bool:
     return _is_oakland(text) or _mentions_any(text, _SF_OAKLAND_LOW_PRICE_AREAS)
 
 
-def _detect_rent_period(text: str, price: int | None) -> tuple[str, bool]:
+def _is_short_sublease(text: str, *, title: str = "") -> bool:
+    """Reject temporary residential sublets — not long-term room rentals."""
+    tit = (title or "").strip()
+    blob = f"{tit} {text}".strip()
+    if not blob:
+        return False
+
+    if _MONTH_SUBLET_TITLE_RE.search(tit):
+        return True
+    if _TITLE_DATE_RANGE_SUBLET_RE.search(tit):
+        return True
+    for pattern in _SHORT_SUBLEASE_RES:
+        if pattern.search(blob):
+            return True
+    if _SHORT_TERM_SIGNAL_RE.search(blob):
+        return True
+
+    if _LONG_TERM_SUBLET_OK_RE.search(blob):
+        return False
+
+    if _LONGER_TERM_OPTION_RE.search(blob):
+        return False
+
+    return False
+
+
+def _detect_rent_period(
+    text: str,
+    price: int | None,
+    *,
+    title: str = "",
+) -> tuple[str, bool]:
     """Return (rent_period, short_term_reject).
 
     short_term_reject is True when the listing should be excluded from monthly rankings.
@@ -953,6 +1024,8 @@ def _detect_rent_period(text: str, price: int | None) -> tuple[str, bool]:
         return "weekly", True
     if _DAILY_RENT_RE.search(text):
         return "daily", True
+    if _is_short_sublease(text, title=title):
+        return "sublet", True
     if _MONTHLY_RENT_RE.search(text):
         return "monthly", False
 
@@ -960,7 +1033,7 @@ def _detect_rent_period(text: str, price: int | None) -> tuple[str, bool]:
     in_sf_oakland = _is_sf_oakland_area(text)
     numeric_price = price if price is not None else 9999
 
-    if short_term_signal and in_sf_oakland and numeric_price < CRITERIA["max_rent"]:
+    if short_term_signal and numeric_price < CRITERIA["max_rent"]:
         return "weekly", True
 
     if in_sf_oakland and numeric_price < 400:
@@ -1564,9 +1637,17 @@ def _apply_rent_period_scoring(
     score: int,
     flags: list[str],
     parts: list[str],
+    title: str = "",
+    rent_period: str | None = None,
+    short_term_reject: bool | None = None,
 ) -> tuple[int, str, bool, list[str], list[str]]:
     """Adjust score/reasoning for rent period; returns updated score, period, reject, flags, parts."""
-    rent_period, short_term_reject = _detect_rent_period(text, price)
+    if rent_period is None or short_term_reject is None:
+        detected_period, detected_reject = _detect_rent_period(text, price, title=title)
+        if rent_period is None:
+            rent_period = detected_period
+        if short_term_reject is None:
+            short_term_reject = detected_reject
     effective_monthly = _effective_monthly_rent(price, rent_period)
 
     if short_term_reject:
@@ -1576,7 +1657,9 @@ def _apply_rent_period_scoring(
             p for p in parts
             if "within budget" not in p.lower()
         ]
-        if rent_period == "weekly" and effective_monthly is not None:
+        if rent_period == "sublet":
+            parts.append("short sublease — reject")
+        elif rent_period == "weekly" and effective_monthly is not None:
             parts.append(f"weekly ${price} (~${effective_monthly}/mo) — short-term reject")
         elif rent_period == "daily" and effective_monthly is not None:
             parts.append(f"daily ${price} (~${effective_monthly}/mo) — short-term reject")
@@ -1601,7 +1684,12 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     price = raw_price if raw_price is not None else 9999
     flags: list[str] = []
 
-    rent_period, short_term_reject = _detect_rent_period(text, raw_price)
+    sublease_text = f"{loc['description']} {primary}".strip()
+    rent_period, short_term_reject = _detect_rent_period(
+        sublease_text or text,
+        raw_price,
+        title=loc["title"],
+    )
     effective_monthly = _effective_monthly_rent(raw_price, rent_period)
     budget_price = effective_monthly if rent_period in ("weekly", "daily") else price
 
@@ -1769,11 +1857,14 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         parts.append("scam signals")
 
     score, rent_period, short_term_reject, flags, parts = _apply_rent_period_scoring(
-        text=text,
+        text=sublease_text or text,
         price=raw_price,
         score=score,
         flags=flags,
         parts=parts,
+        title=loc["title"],
+        rent_period=rent_period,
+        short_term_reject=short_term_reject,
     )
 
     size_info = _classify_size(text)
@@ -1915,17 +2006,19 @@ def _enrich_rent_period(
     item: dict[str, Any],
     listing_text: str,
     price: int | None,
+    *,
+    title: str = "",
 ) -> None:
     """Apply rent-period detection and penalties to a scored result."""
     rent_period = item.get("rent_period")
     short_term_reject = bool(item.get("short_term_reject"))
 
     if rent_period not in RENT_PERIOD_VALUES:
-        rent_period, short_term_reject = _detect_rent_period(listing_text, price)
-    elif rent_period in ("weekly", "daily"):
+        rent_period, short_term_reject = _detect_rent_period(listing_text, price, title=title)
+    elif rent_period in ("weekly", "daily", "sublet"):
         short_term_reject = True
     elif not short_term_reject:
-        _, short_term_reject = _detect_rent_period(listing_text, price)
+        _, short_term_reject = _detect_rent_period(listing_text, price, title=title)
 
     flags = item.get("flags") or []
     if not isinstance(flags, list):
@@ -1941,6 +2034,9 @@ def _enrich_rent_period(
         score=score,
         flags=flags,
         parts=reasoning_parts,
+        title=title,
+        rent_period=str(rent_period) if rent_period in RENT_PERIOD_VALUES else None,
+        short_term_reject=short_term_reject,
     )
 
     item["rent_period"] = rent_period
@@ -2004,7 +2100,12 @@ def score_batch(batch: list[dict[str, Any]], use_gemini: bool = True) -> list[di
                 elif loc_adj and loc_tier in LOCATION_PREFERENCES["penalize"]:
                     item["score"] = max(0, min(100, int(item.get("score", 0)) + loc_adj))
                 _ensure_room_type_flags(item, listing_text)
-                _enrich_rent_period(item, listing_text, source_row.get("price"))
+                _enrich_rent_period(
+                    item,
+                    listing_text,
+                    source_row.get("price"),
+                    title=str(source_row.get("title") or ""),
+                )
                 _enrich_size(item, listing_text)
                 _enrich_move_in(item, listing_text, source_row.get("move_in_date"))
             return results

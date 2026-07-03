@@ -61,7 +61,8 @@ def listing_matches_criteria(
     if exclude_short_term:
         if payload.get("short_term_reject"):
             return False
-        if str(payload.get("rent_period") or "").lower() in ("weekly", "daily"):
+        rent_period = str(payload.get("rent_period") or "").lower()
+        if rent_period in ("weekly", "daily", "sublet"):
             return False
 
     if not price_within_budget(row):

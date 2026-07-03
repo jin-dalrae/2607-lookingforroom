@@ -51,7 +51,7 @@ SEARCH_CRITERIA = {
     "room_type_note": (
         "Private bedroom preferred; also OK as 1 of ~3 in a small shared house "
         "(~2 other roommates). Reject: shared bedroom, SRO/hostel, curtain/partition rooms, "
-        "commercial office/workspace subleases."
+        "commercial office/workspace subleases, short residential subleases."
     ),
     "current_location": "SOMA",
     "location": ["San Francisco city center", "Oakland (near BART, not far east)"],
