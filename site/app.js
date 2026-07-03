@@ -77,6 +77,12 @@ function compareNumber(a, b, dir = 1) {
   return safeLeft < safeRight ? -dir : dir;
 }
 
+function parseTime(value) {
+  if (!value) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
 function sortListings(items) {
   const sorted = [...items];
   sorted.sort((a, b) => {
@@ -91,6 +97,10 @@ function sortListings(items) {
         return compareText(a.title, b.title);
       case "source-asc":
         return compareText(a.source, b.source) || compareText(a.title, b.title);
+      case "posted-desc":
+        return compareNumber(parseTime(b.postedAt), parseTime(a.postedAt), 1) || compareText(a.title, b.title);
+      case "scraped-desc":
+        return compareNumber(parseTime(b.scrapedAt), parseTime(a.scrapedAt), 1) || compareText(a.title, b.title);
       case "score-desc":
       default:
         return compareNumber(b.score, a.score, 1) || compareNumber(a.price, b.price, 1);
@@ -127,7 +137,12 @@ function statusLabel(item) {
   if (item.queueStatus === "to_apply") return ["To apply", "status-todo"];
   if (item.queueStatus === "applied") return ["Awaiting reply", "status-wait"];
   if (item.queueStatus === "replied") return ["Replied", "status-done"];
+  if (item.queueStatus === "skipped") return ["Skipped", "status-skip"];
   return [item.appStatus || "Other", "status-done"];
+}
+
+function timeLabel(value, fallback = "Unknown") {
+  return value || fallback;
 }
 
 function renderCard(item, index) {
@@ -146,6 +161,7 @@ function renderCard(item, index) {
         <div style="flex:1">
           <h2>${esc(item.title)}${badge}</h2>
           <p class="meta">${esc(price)} · ${esc(item.neighborhood)}</p>
+          <p class="timestamps">Posted ${esc(timeLabel(item.postedLabel))} · Scraped ${esc(timeLabel(item.scrapedLabel))}</p>
           <div class="tags">${tags.join("")}</div>
         </div>
         <span class="status ${labelClass}">${label}</span>
@@ -154,6 +170,7 @@ function renderCard(item, index) {
         <button class="btn btn-primary apply-btn" data-id="${esc(item.id)}">Apply</button>
         <a class="btn btn-secondary" href="${esc(item.url)}" target="_blank" rel="noopener">Open</a>
         ${item.queueStatus === "to_apply" ? `<button class="btn btn-secondary sent-btn" data-id="${esc(item.id)}">Mark sent</button>` : ""}
+        ${item.queueStatus === "to_apply" ? `<button class="btn btn-secondary skip-btn" data-id="${esc(item.id)}">Skip</button>` : ""}
       </div>
     </article>`;
 }
@@ -173,7 +190,7 @@ function render() {
     : '<p class="empty">Nothing here. Try another tab or loosen your filters.</p>';
 
   const c = state.data?.counts || {};
-  els.stats.textContent = `${c.toApply ?? 0} to apply · ${c.applied ?? 0} awaiting · ${c.replied ?? 0} replied · ${items.length} shown`;
+  els.stats.textContent = `${c.toApply ?? 0} to apply · ${c.applied ?? 0} awaiting · ${c.replied ?? 0} replied · ${c.skipped ?? 0} skipped · ${items.length} shown`;
 
   els.apiPill.textContent = state.apiOnline
     ? "API online — real Gmail drafts"
@@ -227,6 +244,29 @@ async function applyListing(id) {
     await fallbackApply(item);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function markSkipped(id) {
+  const base = apiBase();
+  if (!base) {
+    toast("Start api.py locally to sync skip status", true);
+    return;
+  }
+  try {
+    const res = await fetch(`${base}/api/skip/${encodeURIComponent(id)}`, { method: "POST" });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || "Failed");
+    const item = (state.data?.listings || []).find((row) => row.id === id);
+    if (item) {
+      item.queueStatus = "skipped";
+      item.appStatus = "skipped";
+      item.skippedLabel = "just now";
+    }
+    render();
+    toast("Skipped");
+  } catch (err) {
+    toast(String(err.message || err), true);
   }
 }
 
@@ -290,7 +330,12 @@ function bindControls() {
       return;
     }
     const sentBtn = event.target.closest(".sent-btn");
-    if (sentBtn) markSent(sentBtn.dataset.id);
+    if (sentBtn) {
+      markSent(sentBtn.dataset.id);
+      return;
+    }
+    const skipBtn = event.target.closest(".skip-btn");
+    if (skipBtn) markSkipped(skipBtn.dataset.id);
   });
 }
 

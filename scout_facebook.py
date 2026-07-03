@@ -208,6 +208,7 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         except Exception:
             title = "Facebook Marketplace listing"
 
+    from listing_dates import parse_posted_at
     from locations import clean_listing_description, resolve_neighborhood_from_text
 
     body_text = description
@@ -230,6 +231,8 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
     if _is_junk_title(title):
         title = "Facebook Marketplace listing"
 
+    posted_at = parse_posted_at(body_text or raw_description or "")
+
     return {
         "listing_id": _listing_id_from_url(url),
         "url": _normalize_item_url(url) or url,
@@ -237,6 +240,7 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         "price": price,
         "neighborhood": neighborhood,
         "description": description,
+        "posted_at": posted_at,
     }
 
 
@@ -253,6 +257,7 @@ def _merge_card_and_details(card: FacebookCard, details: dict[str, Any]) -> dict
         "price": details.get("price") or card.price,
         "neighborhood": details.get("neighborhood") or card.neighborhood,
         "description": details.get("description"),
+        "posted_at": details.get("posted_at"),
     }
 
 
@@ -294,6 +299,7 @@ def ingest_url(url: str, *, headless: bool = True) -> dict[str, Any]:
         price=details["price"],
         neighborhood=details["neighborhood"],
         description=details["description"],
+        posted_at=details.get("posted_at"),
         source="facebook",
     )
     details["outcome"] = outcome
@@ -346,6 +352,7 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                             price=merged["price"],
                             neighborhood=merged["neighborhood"],
                             description=merged["description"],
+                            posted_at=merged.get("posted_at"),
                             source="facebook",
                         )
                     else:

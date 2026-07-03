@@ -107,28 +107,37 @@ def fetch_search_results(
     return cards
 
 
-def fetch_listing_details(session: requests.Session, url: str) -> tuple[str, str]:
+def fetch_listing_details(session: requests.Session, url: str) -> tuple[str, str, str | None]:
     """
     Fetch an individual listing page.
 
-    Returns (post_id, description).
+    Returns (post_id, description, posted_at_iso).
     """
     try:
         response = session.get(url, timeout=REQUEST_TIMEOUT)
         response.raise_for_status()
     except requests.RequestException as exc:
         print(f"  warning: failed to fetch {url}: {exc}", file=sys.stderr)
-        return _listing_id_from_url(url), ""
+        return _listing_id_from_url(url), "", None
 
     soup = BeautifulSoup(response.text, "html.parser")
 
+    from listing_dates import parse_posted_at
+
     post_id = _listing_id_from_url(url)
+    posted_at: str | None = None
+    posting_blob = ""
     for info in soup.select("p.postinginfo"):
         text = info.get_text(" ", strip=True)
+        posting_blob = f"{posting_blob} {text}".strip()
         match = re.search(r"post id:\s*(\d+)", text, re.IGNORECASE)
         if match:
             post_id = match.group(1)
             break
+    time_el = soup.select_one("time.date.timeago")
+    if time_el and time_el.get("datetime"):
+        posting_blob = f"{posting_blob} {time_el['datetime']}".strip()
+    posted_at = parse_posted_at(posting_blob)
 
     body = soup.select_one("section#postingbody")
     if body:
@@ -138,7 +147,7 @@ def fetch_listing_details(session: requests.Session, url: str) -> tuple[str, str
     else:
         description = ""
 
-    return post_id, description
+    return post_id, description, posted_at
 
 
 def _collect_cards(session: requests.Session) -> list[ListingCard]:
@@ -179,7 +188,7 @@ def run_poll_cycle() -> dict[str, int]:
         if index > 1:
             time.sleep(DETAIL_DELAY_SEC)
 
-        post_id, description = fetch_listing_details(session, card.url)
+        post_id, description, posted_at = fetch_listing_details(session, card.url)
         listing_id = post_id or card.post_id
 
         try:
@@ -190,6 +199,7 @@ def run_poll_cycle() -> dict[str, int]:
                 price=card.price,
                 neighborhood=card.neighborhood,
                 description=description or None,
+                posted_at=posted_at,
                 source="craigslist",
             )
             counts[outcome] += 1

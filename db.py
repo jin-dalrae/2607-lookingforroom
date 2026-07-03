@@ -77,6 +77,7 @@ APPLICATION_STATUSES = (
     "sent",
     "replied",
     "toured",
+    "skipped",
     "rejected",
     "accepted",
 )
@@ -149,6 +150,8 @@ def init_db() -> None:
         cols = _table_columns(conn, "listings")
         if "move_in_date" not in cols:
             conn.execute("ALTER TABLE listings ADD COLUMN move_in_date TEXT")
+        if "posted_at" not in cols:
+            conn.execute("ALTER TABLE listings ADD COLUMN posted_at TEXT")
 
         _migrate_scores_table(conn)
         _init_applications_table(conn)
@@ -183,6 +186,7 @@ def upsert_listing(
     neighborhood: str | None = None,
     description: str | None = None,
     move_in_date: str | None = None,
+    posted_at: str | None = None,
     source: str = "craigslist",
 ) -> str:
     """
@@ -199,8 +203,8 @@ def upsert_listing(
                 """
                 INSERT INTO listings (
                     id, url, title, price, neighborhood, description,
-                    move_in_date, first_seen, last_seen, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    move_in_date, posted_at, first_seen, last_seen, source
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     listing_id,
@@ -210,6 +214,7 @@ def upsert_listing(
                     neighborhood,
                     description,
                     move_in_date,
+                    posted_at,
                     now,
                     now,
                     source,
@@ -244,6 +249,9 @@ def upsert_listing(
             changed = True
         if move_in_date is not None and move_in_date != existing["move_in_date"]:
             updates["move_in_date"] = move_in_date
+            changed = True
+        if posted_at is not None and posted_at != existing["posted_at"]:
+            updates["posted_at"] = posted_at
             changed = True
 
         set_clause = ", ".join(f"{col} = ?" for col in updates)
@@ -451,6 +459,7 @@ def get_pool_listings(
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
+                l.posted_at, l.first_seen, l.last_seen,
                 s.score, s.is_private_room, s.is_scam_likely,
                 s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
             FROM listings l
@@ -488,6 +497,48 @@ def get_pool_listings(
         results.append(listing)
 
     return sort_matches(results)[:limit]
+
+
+def get_listings_with_queue_applications(
+    *,
+    statuses: tuple[str, ...] = ("skipped", "sent", "replied", "toured", "draft"),
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """Listings that have an application in a queue-visible status."""
+    init_db()
+    placeholders = ",".join("?" for _ in statuses)
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                l.id, l.url, l.title, l.price, l.neighborhood,
+                l.description, l.move_in_date, l.source,
+                l.posted_at, l.first_seen, l.last_seen,
+                s.score, s.is_private_room, s.is_scam_likely,
+                s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
+            FROM applications a
+            INNER JOIN listings l ON l.id = a.listing_id
+            LEFT JOIN scores s ON l.id = s.listing_id
+            WHERE a.status IN ({placeholders})
+            ORDER BY a.updated_at DESC
+            LIMIT ?
+            """,
+            (*statuses, limit),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_queue_export_listings(*, pool_limit: int = 500) -> list[dict[str, Any]]:
+    """Pool listings plus any with queue application rows (e.g. skipped after filter)."""
+    pool = get_pool_listings(limit=pool_limit, exclude_scams=True)
+    seen = {row["id"] for row in pool}
+    rows = list(pool)
+    for row in get_listings_with_queue_applications(limit=pool_limit):
+        if row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        rows.append(row)
+    return rows
 
 
 def get_top_listings(limit: int = 15) -> list[dict[str, Any]]:
@@ -698,6 +749,48 @@ def mark_application_sent(
                 WHERE listing_id = ?
                 """,
                 (channel, now, now, listing_id),
+            )
+        conn.commit()
+    return get_application_by_listing_id(listing_id)
+
+
+def mark_application_skipped(
+    listing_id: str,
+    *,
+    notes: str | None = None,
+) -> dict[str, Any] | None:
+    """Mark a listing as skipped. Creates a row if missing."""
+    init_db()
+    now = _utcnow()
+    existing = get_application_by_listing_id(listing_id)
+
+    with get_connection() as conn:
+        if existing is None:
+            conn.execute(
+                """
+                INSERT INTO applications
+                    (listing_id, status, draft_text, notes, channel, created_at, updated_at)
+                VALUES (?, 'skipped', '', ?, NULL, ?, ?)
+                """,
+                (listing_id, notes, now, now),
+            )
+        elif notes is not None:
+            conn.execute(
+                """
+                UPDATE applications
+                SET status = 'skipped', notes = ?, updated_at = ?
+                WHERE listing_id = ?
+                """,
+                (notes, now, listing_id),
+            )
+        else:
+            conn.execute(
+                """
+                UPDATE applications
+                SET status = 'skipped', updated_at = ?
+                WHERE listing_id = ?
+                """,
+                (now, listing_id),
             )
         conn.commit()
     return get_application_by_listing_id(listing_id)

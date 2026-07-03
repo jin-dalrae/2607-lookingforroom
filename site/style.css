@@ -168,6 +168,13 @@ header h1 { margin: 0 0 0.25rem; font-size: 1.45rem; }
 .status-todo { background: #e8f2ff; color: var(--blue); }
 .status-done { background: #eef7ee; color: var(--green); }
 .status-wait { background: #fff4e5; color: var(--orange); }
+.status-skip { background: #f0f0f2; color: var(--muted); }
+
+.timestamps {
+  margin: 0.15rem 0 0;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
 
 .actions {
   display: flex;

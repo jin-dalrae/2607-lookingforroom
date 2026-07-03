@@ -13,9 +13,10 @@ from apply import load_profile, standard_apply_message
 from channels import default_channel_for_listing, is_facebook_listing
 from db import (
     get_application_by_listing_id,
-    get_pool_listings,
+    get_queue_export_listings,
     init_db,
 )
+from listing_dates import format_timestamp_label, resolve_posted_at
 from match import listing_matches_criteria
 from send_mail import extract_listing_email
 
@@ -78,6 +79,8 @@ def _move_in_tag(flags_json: str | None) -> str | None:
 def _queue_status(app_status: str | None) -> str:
     if app_status in (None, "draft"):
         return "to_apply"
+    if app_status == "skipped":
+        return "skipped"
     if app_status == "replied":
         return "replied"
     if app_status in ("sent", "toured"):
@@ -97,6 +100,10 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     if app and app.get("channel"):
         channel = app["channel"]
 
+    posted_at = resolve_posted_at(row)
+    scraped_at = row.get("last_seen")
+    skipped_at = app.get("updated_at") if app and app_status == "skipped" else None
+
     return {
         "id": listing_id,
         "title": row.get("title") or "Untitled",
@@ -110,6 +117,13 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "score": row.get("score"),
         "queueStatus": _queue_status(app_status),
         "appStatus": app_status,
+        "postedAt": posted_at,
+        "postedLabel": format_timestamp_label(posted_at),
+        "scrapedAt": scraped_at,
+        "scrapedLabel": format_timestamp_label(scraped_at),
+        "firstScrapedAt": row.get("first_seen"),
+        "skippedAt": skipped_at,
+        "skippedLabel": format_timestamp_label(skipped_at) if skipped_at else None,
         "transitTag": _transit_tag(row.get("flags_json"), row.get("reasoning") or ""),
         "moveInTag": _move_in_tag(row.get("flags_json")),
         "to": to_addr,
@@ -124,12 +138,13 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
     profile = load_profile()
     subject = (profile.get("email_subject") or "Room Rental Inquiry by Aug 18").strip()
 
-    rows = get_pool_listings(limit=export_limit, exclude_scams=True)
+    rows = get_queue_export_listings(pool_limit=export_limit)
     listings = [_serialize_listing(row, profile) for row in rows]
     counts = {
         "toApply": sum(1 for item in listings if item["queueStatus"] == "to_apply"),
         "applied": sum(1 for item in listings if item["queueStatus"] == "applied"),
         "replied": sum(1 for item in listings if item["queueStatus"] == "replied"),
+        "skipped": sum(1 for item in listings if item["queueStatus"] == "skipped"),
         "moveInWindow": sum(1 for item in listings if item["isMatch"]),
         "total": len(listings),
     }

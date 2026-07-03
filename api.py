@@ -14,7 +14,13 @@ from urllib.parse import urlparse
 
 from apply import create_application, load_profile, standard_apply_message
 from channels import default_channel_for_listing, is_facebook_listing
-from db import _listing_with_score, get_listing_by_id, init_db, mark_application_sent
+from db import (
+    _listing_with_score,
+    get_listing_by_id,
+    init_db,
+    mark_application_sent,
+    mark_application_skipped,
+)
 from gmail_creds import SETUP_INSTRUCTIONS, gmail_configured
 from gmail_draft import create_gmail_draft, format_result
 
@@ -93,6 +99,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         draft_match = re.match(r"^/api/draft/([^/]+)$", path)
         sent_match = re.match(r"^/api/sent/([^/]+)$", path)
+        skip_match = re.match(r"^/api/skip/([^/]+)$", path)
 
         if draft_match:
             listing_id = draft_match.group(1)
@@ -101,6 +108,10 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         if sent_match:
             listing_id = sent_match.group(1)
             self._handle_sent(listing_id)
+            return
+        if skip_match:
+            listing_id = skip_match.group(1)
+            self._handle_skip(listing_id)
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
 
@@ -165,6 +176,22 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             _json_response(self, 500, {"ok": False, "error": str(exc)})
 
+    def _handle_skip(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+        app = mark_application_skipped(listing["id"])
+        _json_response(
+            self,
+            200,
+            {"ok": True, "status": app["status"] if app else "skipped"},
+        )
+
     def _handle_sent(self, listing_id: str) -> None:
         if not ID_RE.match(listing_id):
             _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
@@ -194,6 +221,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  GET  /api/health")
     print("  POST /api/draft/<listing_id>")
     print("  POST /api/sent/<listing_id>")
+    print("  POST /api/skip/<listing_id>")
     if not gmail_configured():
         print("  warning: Gmail not configured — email drafts will fail", file=sys.stderr)
     try:
