@@ -514,10 +514,6 @@ async function toggleLike(id) {
 async function deleteListing(id) {
   const item = (state.data?.listings || []).find((row) => row.id === id);
   if (!item) return;
-  const label = item.title || "this listing";
-  if (!window.confirm(`Delete "${label}" permanently? It will not return on refresh.`)) {
-    return;
-  }
 
   const base = apiBase();
   if (!base || !state.apiHasDelete) {
