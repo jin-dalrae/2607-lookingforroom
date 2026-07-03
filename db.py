@@ -434,6 +434,56 @@ def get_ranked_listings(
     )
 
 
+def get_pool_listings(
+    limit: int = 150,
+    *,
+    exclude_scams: bool = True,
+    exclude_short_term: bool = True,
+) -> list[dict[str, Any]]:
+    """Scored listings under budget (no move-in hard filter)."""
+    from match import _flags_payload, price_within_budget, sort_matches
+
+    init_db()
+    scam_clause = "AND s.is_scam_likely = 0" if exclude_scams else ""
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT
+                l.id, l.url, l.title, l.price, l.neighborhood,
+                l.description, l.move_in_date, l.source,
+                s.score, s.is_private_room, s.is_scam_likely,
+                s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
+            FROM listings l
+            INNER JOIN scores s ON l.id = s.listing_id
+            WHERE 1=1 {scam_clause}
+            ORDER BY s.score DESC, l.price ASC
+            LIMIT 500
+            """,
+        ).fetchall()
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        listing = dict(row)
+        if exclude_scams and listing.get("is_scam_likely"):
+            continue
+        payload = _flags_payload(listing.get("flags_json"))
+        if exclude_short_term:
+            if payload.get("short_term_reject"):
+                continue
+            if str(payload.get("rent_period") or "").lower() in ("weekly", "daily"):
+                continue
+        room_flags = payload.get("flags") or []
+        if not isinstance(room_flags, list):
+            room_flags = [str(room_flags)]
+        if "shared_bedroom_reject" in room_flags or "sro_reject" in room_flags:
+            continue
+        if not price_within_budget(listing):
+            continue
+        results.append(listing)
+
+    return sort_matches(results)[:limit]
+
+
 def get_top_listings(limit: int = 15) -> list[dict[str, Any]]:
     """Alias for run.py compatibility."""
     return get_ranked_listings(limit=limit, exclude_scams=True)

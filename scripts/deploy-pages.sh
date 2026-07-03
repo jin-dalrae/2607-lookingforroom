@@ -6,7 +6,7 @@ cd "$ROOT"
 
 PROJECT_NAME="${PAGES_PROJECT_NAME:-2607-lookingforroom}"
 
-echo "Generating listings page..."
+echo "Exporting apply queue..."
 python listings_page.py
 
 echo "Deploying to Cloudflare Pages ($PROJECT_NAME)..."

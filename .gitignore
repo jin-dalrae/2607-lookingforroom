@@ -31,7 +31,7 @@ digest.md
 outreach_drafts.txt
 site/listing-mails-communication.html
 site/batch_apply.html
-site/index.html
+site/data.json
 
 # Cloudflare local
 .wrangler/

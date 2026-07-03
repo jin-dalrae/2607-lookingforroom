@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Apply queue</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <h1>Apply queue</h1>
+      <p class="sub">One message for every listing. <strong>Apply</strong> saves a Gmail draft (when API is on) or opens compose.</p>
+      <p class="stats" id="stats">Loading…</p>
+    </header>
+
+    <div class="toolbar">
+      <div class="tabs">
+        <button class="tab active" data-tab="to_apply">To apply</button>
+        <button class="tab" data-tab="applied">Applied</button>
+        <button class="tab" data-tab="replied">Replied</button>
+      </div>
+      <div class="filters">
+        <button class="filter active" data-view="matches">Matches</button>
+        <button class="filter" data-view="pool">Pool</button>
+      </div>
+      <span class="api-pill offline" id="api-pill">Checking API…</span>
+    </div>
+
+    <details class="message-box">
+      <summary>Message template</summary>
+      <pre id="message-pre"></pre>
+    </details>
+
+    <section class="list" id="list">
+      <p class="empty">Loading listings…</p>
+    </section>
+  </div>
+
+  <div class="toast" id="toast"></div>
+  <script src="/app.js" defer></script>
+</body>
+</html>
