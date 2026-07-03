@@ -287,7 +287,7 @@ Edit `profile.yaml` once with your name, move-in window, budget, and about-you b
 1. **Morning & evening** — run `python run.py` (or set a cron job every 6 hours; see `POLL_INTERVAL_HOURS` in `config.py`).
 2. **Review top 5** — printed at the end of each run; use `/apply` or `python apply.py` for drafts.
 3. **Send manually on Craigslist** — copy draft, paste into email relay, then `/applied`.
-4. **Facebook groups** — this tool covers Craigslist only. Check these manually (see below).
+4. **Facebook Marketplace** — included in `python run.py` when logged in (see below). Groups are still manual.
 
 ### Suggested cron (every 6 hours)
 
@@ -295,9 +295,34 @@ Edit `profile.yaml` once with your name, move-in window, budget, and about-you b
 0 */6 * * * cd /path/to/2607-lookingforroom && .venv/bin/python run.py >> logs/run.log 2>&1
 ```
 
+## Facebook Marketplace (automated)
+
+Marketplace listings are polled with Playwright after a one-time browser login on your Mac.
+
+```bash
+# One-time login (opens Chromium — log in, then press Enter)
+python scout_facebook.py login
+
+# Poll SF + Oakland searches (also runs filter + rank)
+python scout_facebook.py poll
+
+# Import a single listing URL
+python scout_facebook.py ingest "https://www.facebook.com/marketplace/item/1234567890"
+
+# Full pipeline (Craigslist + Facebook + filter + rank)
+python run.py
+
+# Draft for a pasted Marketplace URL (ingests, scores, drafts)
+python apply.py "https://www.facebook.com/marketplace/item/1234567890"
+```
+
+After sending a message on Marketplace, mark it: `/sent facebook` or `python sync.py --url <fb-url>` (channel auto-detects as Facebook).
+
+Session file: `facebook_state.json` (gitignored). Re-run `login` if polls start failing.
+
 ## Manual Facebook group tips
 
-Craigslist is automated; Facebook is still manual but often has better leads.
+Craigslist and Marketplace are automated; **groups** are still manual but often have better leads.
 
 **Groups to join (search FB for exact names):**
 
@@ -324,6 +349,8 @@ profile.yaml   # Your applicant profile (name, move-in, budget)
 config.py      # Search criteria, URLs, env
 run.py         # CLI orchestrator
 scout.py       # Craigslist fetcher
+scout_facebook.py  # Facebook Marketplace fetcher (Playwright)
+facebook_session.py  # Saved FB login state
 filter.py      # Gemini/heuristic scoring
 rank.py        # Top-15 digest output
 apply.py       # Application drafts + tour prep

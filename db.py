@@ -654,15 +654,22 @@ def mark_applications_sent_bulk(
     return count
 
 
-def mark_all_drafts_sent(*, channel: str = "craigslist") -> int:
+def mark_all_drafts_sent(*, channel: str | None = None) -> int:
     """Mark every draft application as sent (catch-up after batch apply)."""
+    from channels import default_channel_for_listing
+
     init_db()
     with get_connection() as conn:
         rows = conn.execute(
             "SELECT listing_id FROM applications WHERE status = 'draft'"
         ).fetchall()
-    listing_ids = [row["listing_id"] for row in rows]
-    return mark_applications_sent_bulk(listing_ids, channel=channel)
+    count = 0
+    for row in rows:
+        listing_id = row["listing_id"]
+        ch = channel or default_channel_for_listing(get_listing_by_id(listing_id))
+        if mark_application_sent(listing_id, channel=ch):
+            count += 1
+    return count
 
 
 def mark_ranked_sent(top_n: int, *, channel: str = "craigslist") -> int:
@@ -723,6 +730,7 @@ def upsert_application_draft(
     draft_text: str,
     *,
     status: str = "draft",
+    channel: str | None = None,
 ) -> dict[str, Any]:
     """Create or update an application draft. Returns the application row."""
     if status not in APPLICATION_STATUSES:
@@ -731,25 +739,31 @@ def upsert_application_draft(
     init_db()
     now = _utcnow()
     existing = get_application_by_listing_id(listing_id)
+    if channel is None and existing and existing.get("channel"):
+        channel = existing["channel"]
+    elif channel is None:
+        from channels import default_channel_for_listing
+
+        channel = default_channel_for_listing(get_listing_by_id(listing_id))
 
     with get_connection() as conn:
         if existing is None:
             conn.execute(
                 """
                 INSERT INTO applications
-                    (listing_id, status, draft_text, notes, created_at, updated_at)
-                VALUES (?, ?, ?, NULL, ?, ?)
+                    (listing_id, status, draft_text, notes, channel, created_at, updated_at)
+                VALUES (?, ?, ?, NULL, ?, ?, ?)
                 """,
-                (listing_id, status, draft_text, now, now),
+                (listing_id, status, draft_text, channel, now, now),
             )
         else:
             conn.execute(
                 """
                 UPDATE applications
-                SET draft_text = ?, status = ?, updated_at = ?
+                SET draft_text = ?, status = ?, channel = ?, updated_at = ?
                 WHERE listing_id = ?
                 """,
-                (draft_text, status, now, listing_id),
+                (draft_text, status, channel, now, listing_id),
             )
         conn.commit()
 

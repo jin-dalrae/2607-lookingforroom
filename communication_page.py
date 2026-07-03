@@ -12,7 +12,13 @@ from typing import Any
 from urllib.parse import quote
 
 from apply import load_profile
-from channels import channel_icon, channel_label, normalize_channel
+from channels import (
+    channel_icon,
+    channel_label,
+    default_channel_for_listing,
+    is_facebook_listing,
+    normalize_channel,
+)
 from db import (
     get_application_stats,
     get_channel_stats,
@@ -75,6 +81,8 @@ def _action_hint(row: dict[str, Any], days: int | None) -> str:
     channel = normalize_channel(row.get("channel"), default="email")
 
     if status == "draft":
+        if channel == "facebook" or is_facebook_listing(row):
+            return "Open listing → Message seller → paste draft from /apply"
         if channel == "imessage":
             return "Send initial inquiry via iMessage (paste draft from /apply)"
         return "Send initial inquiry (Gmail Drafts or Craigslist reply)"
@@ -88,10 +96,14 @@ def _action_hint(row: dict[str, Any], days: int | None) -> str:
         return "Follow up on decision / lease terms"
 
     if status == "sent":
-        via = "Messages" if channel == "imessage" else "email"
-        if channel == "imessage":
+        if channel == "facebook":
+            via = "Facebook Messenger"
+            note = " (inbox scan won't see Messenger — mark /replied when they answer)"
+        elif channel == "imessage":
+            via = "Messages"
             note = " (inbox scan won't see iMessage — mark /replied when they answer)"
         else:
+            via = "email"
             note = ""
         if days is not None and days >= FOLLOW_UP_AFTER_DAYS:
             return f"No reply in {days} days — follow up in {via}{note}"
@@ -113,7 +125,10 @@ def _row_fields(row: dict[str, Any], profile: dict[str, Any]) -> dict[str, Any]:
     sent_display = sent_at[:10] if sent_at else ""
     days = _days_since(sent_at or row.get("updated_at"))
     raw_channel = row.get("channel")
-    channel_key = normalize_channel(raw_channel, default="email")
+    channel_key = normalize_channel(
+        raw_channel,
+        default=default_channel_for_listing(row),
+    )
     reply_snip = row.get("last_reply_snippet")
     needs_follow = (
         status == "sent"

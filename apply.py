@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 
 import yaml
 
+from channels import default_channel_for_listing, is_facebook_listing
 from db import (
     _listing_with_score,
     get_first_unapplied_ranked_listing,
@@ -157,9 +158,13 @@ def resolve_listing(listing_ref: str) -> dict[str, Any] | None:
             return _listing_with_score(row["id"])
         if _is_facebook_marketplace_url(ref):
             try:
+                import filter as listing_filter
+                import rank as rank_module
                 from scout_facebook import ingest_url
 
                 details = ingest_url(ref)
+                listing_filter.run()
+                rank_module.run()
                 listing = _listing_with_score(details["listing_id"])
                 if listing is not None:
                     return listing
@@ -188,7 +193,13 @@ def create_application(listing_id: str, profile: dict[str, Any] | None = None) -
 
     profile_data = profile or load_profile()
     draft_text = build_draft(listing, profile_data)
-    app = upsert_application_draft(listing_id, draft_text, status="draft")
+    channel = default_channel_for_listing(listing)
+    app = upsert_application_draft(
+        listing_id,
+        draft_text,
+        status="draft",
+        channel=channel,
+    )
     return {
         "application": app,
         "listing": listing,
@@ -206,6 +217,11 @@ def format_apply_message(result: dict[str, Any]) -> str:
     score = listing.get("score")
     score_bit = f" [{score}]" if score is not None else ""
 
+    if is_facebook_listing(listing):
+        paste_hint = "Open the listing → Message seller → paste this draft"
+    else:
+        paste_hint = "Copy this and paste into Craigslist reply"
+
     header = (
         f"Apply draft{score_bit}\n"
         f"{title}\n"
@@ -214,7 +230,7 @@ def format_apply_message(result: dict[str, Any]) -> str:
         f"{'-' * 40}\n"
         f"{draft}\n"
         f"{'-' * 40}\n"
-        f"Copy this and paste into Craigslist/Facebook message"
+        f"{paste_hint}"
     )
     return header
 
@@ -286,7 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "listing_ref",
         nargs="?",
-        help="Listing Craigslist URL or id",
+        help="Listing URL (Craigslist/Facebook) or id",
     )
     parser.add_argument(
         "--top",

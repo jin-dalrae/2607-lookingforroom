@@ -21,7 +21,13 @@ import requests
 from dotenv import load_dotenv
 
 import notify
-from channels import channel_icon, channel_label, parse_channel_args
+from channels import (
+    channel_icon,
+    channel_label,
+    default_channel_for_listing,
+    is_facebook_listing,
+    parse_channel_args,
+)
 from apply import (
     create_application,
     format_apply_message,
@@ -101,10 +107,9 @@ HELP_TEXT = """SF/Oakland room finder — commands:
 /prep — tour questions for last drafted listing
 /prep 2 — tour questions for 2nd ranked listing
 /dead <url> — mark listing unavailable (rented/gone)
-/run — scout + filter + rank (~3 min), then digest summary
-/run fb — same pipeline + Facebook Marketplace (if logged in)
+/run — scout + Facebook + filter + rank (~3 min), then digest summary
 /fb — Facebook login/poll help
-/fb poll — poll Marketplace (needs login on your Mac first)
+/fb poll — poll Marketplace only (needs login on your Mac first)
 /comm — follow-up page (listing-mails-communication)
 /status — listing count and last poll time
 /help — this message"""
@@ -136,6 +141,7 @@ def _format_listing_rows(
     for i, row in enumerate(listings, 1):
         price = f"${row['price']}" if row.get("price") else "N/A"
         listing_title = (row.get("title") or "Untitled")[:55]
+        source_badge = " 📘" if is_facebook_listing(row) else ""
         neighborhood = row.get("neighborhood") or "Unknown"
         reasoning = (row.get("reasoning") or "")[:90]
         transit_label = _transit_label(row)
@@ -152,7 +158,7 @@ def _format_listing_rows(
         move_in_label = _move_in_display(row.get("flags_json"))
         move_in_line = f"   {move_in_label}" if move_in_label else ""
         block = [
-            f"{i}. {listing_title}",
+            f"{i}. {listing_title}{source_badge}",
             f"   {price} · {neighborhood}{transit}{period_warning}",
         ]
         if size_line:
@@ -181,6 +187,8 @@ def _listings_by_transit_tier(tier: str, limit: int = 5) -> list[dict[str, Any]]
 
 
 def _status_message() -> str:
+    from facebook_session import session_configured
+
     init_pipeline_tables()
     total = count_listings()
     with get_connection() as conn:
@@ -188,12 +196,18 @@ def _status_message() -> str:
             "SELECT MAX(last_seen) AS last_poll FROM listings"
         ).fetchone()
         scored_row = conn.execute("SELECT COUNT(*) AS n FROM scores").fetchone()
+        fb_row = conn.execute(
+            "SELECT COUNT(*) AS n FROM listings WHERE source = 'facebook'"
+        ).fetchone()
     last_poll = (row["last_poll"] if row else None) or "never"
     scored = int(scored_row["n"]) if scored_row else 0
+    fb_count = int(fb_row["n"]) if fb_row else 0
+    fb_status = "logged in ✓" if session_configured() else "not logged in (python scout_facebook.py login)"
     return (
         f"Status\n"
-        f"Listings in DB: {total}\n"
+        f"Listings in DB: {total} ({fb_count} Facebook)\n"
         f"Scored listings: {scored}\n"
+        f"Facebook session: {fb_status}\n"
         f"Last poll (max last_seen): {last_poll}"
     )
 
@@ -203,6 +217,7 @@ def _pipeline_summary(results: dict[str, int]) -> str:
     lines = [
         "Pipeline complete.",
         f"Scout: {results.get('scout', 0)} new",
+        f"Facebook: {results.get('facebook', 0)} new",
         f"Filter: {results.get('filter', 0)} scored",
         f"Rank: {results.get('rank', 0)} in digest",
         "",
@@ -459,21 +474,11 @@ def handle_command(chat_id: int | str, text: str) -> None:
         )
         try:
             init_pipeline_tables()
-            results = run_pipeline(("scout", "filter", "rank"))
+            results = run_pipeline(("scout", "facebook", "filter", "rank"))
             reply(chat_id, _pipeline_summary(results))
         except Exception as exc:
             print(f"/run failed: {exc}", file=sys.stderr)
             traceback.print_exc()
-            reply(chat_id, f"Pipeline error: {exc}")
-        return
-
-    if command == "/run fb" or command == "/runfb":
-        reply(chat_id, "Starting scout + Facebook → filter → rank…")
-        try:
-            init_pipeline_tables()
-            results = run_pipeline(("scout", "facebook", "filter", "rank"))
-            reply(chat_id, _pipeline_summary(results))
-        except Exception as exc:
             reply(chat_id, f"Pipeline error: {exc}")
         return
 
@@ -633,18 +638,28 @@ def handle_command(chat_id: int | str, text: str) -> None:
             url = listing.get("url", "")
 
             if not to_email:
-                reply(
-                    chat_id,
-                    "Cannot auto-send — Craigslist has no public landlord email.\n\n"
-                    f"{title}\n{url}\n\n"
-                    "Craigslist replies need a browser (Reply button + relay token). "
-                    "A GCP API key cannot send Gmail.\n\n"
-                    "What works:\n"
-                    "1. /apply — copy-paste draft into Craigslist Reply\n"
-                    "2. Gmail OAuth or App Password — send when you have a direct TO address\n"
-                    "3. mail_monitor — read inbox for landlord replies (/gmail status)\n\n"
-                    "TODO: Playwright automation for Craigslist Reply form (not built yet).",
-                )
+                if is_facebook_listing(listing):
+                    reply(
+                        chat_id,
+                        "Facebook Marketplace — message the seller in-browser.\n\n"
+                        f"{title}\n{url}\n\n"
+                        "1. /apply — copy draft\n"
+                        "2. Open listing → Message seller → paste\n"
+                        "3. /sent facebook — mark as sent when done",
+                    )
+                else:
+                    reply(
+                        chat_id,
+                        "Cannot auto-send — Craigslist has no public landlord email.\n\n"
+                        f"{title}\n{url}\n\n"
+                        "Craigslist replies need a browser (Reply button + relay token). "
+                        "A GCP API key cannot send Gmail.\n\n"
+                        "What works:\n"
+                        "1. /apply — copy-paste draft into Craigslist Reply\n"
+                        "2. Gmail OAuth or App Password — send when you have a direct TO address\n"
+                        "3. mail_monitor — read inbox for landlord replies (/gmail status)\n\n"
+                        "TODO: Playwright automation for Craigslist Reply form (not built yet).",
+                    )
                 return
 
             dry_run = not mail_monitor.gmail_configured()
@@ -681,8 +696,18 @@ def handle_command(chat_id: int | str, text: str) -> None:
             init_pipeline_tables()
 
             if command == "/sentall":
+                explicit_channel = next(
+                    (
+                        token
+                        for token in args
+                        if token.lower() in {"craigslist", "email", "imessage", "phone", "facebook", "other", "sms", "text"}
+                    ),
+                    None,
+                )
                 channel, _ = parse_channel_args(args, default="craigslist")
-                count = mark_all_drafts_sent(channel=channel)
+                count = mark_all_drafts_sent(
+                    channel=channel if explicit_channel else None,
+                )
                 stats = get_application_stats()
                 icon = channel_icon(channel)
                 label = channel_label(channel)
@@ -751,6 +776,11 @@ def handle_command(chat_id: int | str, text: str) -> None:
                 if listing is None:
                     reply(chat_id, "Listing not found. Use rank number or full URL.")
                     return
+                if not any(
+                    token.lower() in {"craigslist", "email", "imessage", "phone", "facebook", "other", "sms", "text"}
+                    for token in args
+                ):
+                    channel = default_channel_for_listing(listing)
                 app = mark_application_sent(listing["id"], channel=channel)
                 title = (listing.get("title") or listing["id"])[:60]
                 icon = channel_icon(channel)
@@ -768,8 +798,13 @@ def handle_command(chat_id: int | str, text: str) -> None:
             if last_draft is None:
                 reply(chat_id, "No draft to mark as sent. Use /apply first.")
                 return
-            app = mark_application_sent(last_draft["listing_id"], channel=channel)
             listing = _listing_with_score(last_draft["listing_id"])
+            if not any(
+                token.lower() in {"craigslist", "email", "imessage", "phone", "facebook", "other", "sms", "text"}
+                for token in args
+            ):
+                channel = default_channel_for_listing(listing)
+            app = mark_application_sent(last_draft["listing_id"], channel=channel)
             title = (listing or {}).get("title", last_draft["listing_id"])
             icon = channel_icon(channel)
             label = channel_label(channel)

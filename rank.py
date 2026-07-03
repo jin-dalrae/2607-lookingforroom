@@ -301,6 +301,7 @@ def print_rankings(rows: list[dict]) -> None:
     for i, row in enumerate(rows, 1):
         price = f"${row['price']}" if row.get("price") else "N/A"
         title = (row.get("title") or "Untitled")[:55]
+        source_tag = " 📘" if (row.get("source") or "") == "facebook" else ""
         reasoning = (row.get("reasoning") or "")[:75]
         transit_label = _transit_label(row)
         transit = f" [Near: {transit_label}]" if transit_label else ""
@@ -315,7 +316,7 @@ def print_rankings(rows: list[dict]) -> None:
         tier = _transit_tier(row)
         tier_tag = f" ({tier})" if tier != "none" else ""
         print(
-            f"{i:2}. {title}{room_tag}{size_tag}"
+            f"{i:2}. {title}{source_tag}{room_tag}{size_tag}"
             f"{move_in_tag}{location_tag}{transit}{tier_tag}"
         )
         print(f"    {price} | {row.get('neighborhood', '?')} | {reasoning}")

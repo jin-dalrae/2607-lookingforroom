@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from channels import normalize_channel, parse_channel_args
+from channels import default_channel_for_listing, normalize_channel, parse_channel_args
 from db import (
     get_application_stats,
     get_listing_by_id,
@@ -84,9 +84,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--channel",
-        default="craigslist",
+        default=None,
         choices=("craigslist", "email", "imessage", "phone", "facebook", "other"),
-        help="Outreach channel: craigslist, email, imessage, … (default: craigslist)",
+        help="Outreach channel (default: auto from listing source)",
     )
     parser.add_argument(
         "--rechannel",
@@ -109,13 +109,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if ns.catch_up:
             count = mark_all_drafts_sent(channel=ns.channel)
-            print(f"Catch-up: marked {count} draft(s) as sent via {ns.channel}.")
+            channel_note = ns.channel or "auto (per listing)"
+            print(f"Catch-up: marked {count} draft(s) as sent via {channel_note}.")
 
         if ns.top is not None:
             if ns.top < 1:
                 print("--top must be at least 1", file=sys.stderr)
                 return 1
-            count = mark_ranked_sent(ns.top, channel=ns.channel)
+            channel = ns.channel or "craigslist"
+            count = mark_ranked_sent(ns.top, channel=channel)
             print(f"Marked top {ns.top} ranked listing(s) as sent ({count} updated).")
 
         if ns.url:
@@ -126,11 +128,12 @@ def main(argv: list[str] | None = None) -> int:
             if listing is None:
                 print(f"Listing not found: {ns.url}", file=sys.stderr)
                 return 1
+            channel = ns.channel or default_channel_for_listing(listing)
             if ns.rechannel:
-                app = update_application_channel(listing["id"], channel=ns.channel)
+                app = update_application_channel(listing["id"], channel=channel)
                 verb = "Rechanneled"
             else:
-                app = mark_application_sent(listing["id"], channel=ns.channel)
+                app = mark_application_sent(listing["id"], channel=channel)
                 verb = "Marked sent"
             title = (listing.get("title") or listing["id"])[:60]
             print(f"{verb}: {title}")
@@ -163,12 +166,13 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"Rank #{pos} not found.", file=sys.stderr)
                     return 1
                 listing_ids.append(listing["id"])
+            channel = ns.channel or "craigslist"
             if ns.rechannel:
-                count = update_applications_channel_bulk(listing_ids, channel=ns.channel)
-                print(f"Rechanneled {count} listing(s) to {ns.channel}.")
+                count = update_applications_channel_bulk(listing_ids, channel=channel)
+                print(f"Rechanneled {count} listing(s) to {channel}.")
             else:
-                count = mark_applications_sent_bulk(listing_ids, channel=ns.channel)
-                print(f"Marked {count} listing(s) as sent via {ns.channel}.")
+                count = mark_applications_sent_bulk(listing_ids, channel=channel)
+                print(f"Marked {count} listing(s) as sent via {channel}.")
 
         if ns.status or ns.catch_up or ns.top or ns.url or ns.ranks:
             print()

@@ -277,11 +277,17 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ingest":
         try:
             details = ingest_url(args.url, headless=not args.headed)
+            import filter as listing_filter
+            import rank as rank_module
+
             print(
                 f"{details['outcome']}: {details['title']} "
                 f"${details.get('price') or '?'} — {details['url']}"
             )
-            print("Run: python filter.py && python rank.py")
+            print("▶ Filter + rank…")
+            listing_filter.run()
+            rank_module.run()
+            print("Run: python apply.py", details["url"])
             return 0
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)
@@ -301,6 +307,13 @@ def main(argv: list[str] | None = None) -> int:
             )
             if counts["errors"]:
                 print(f"Errors: {counts['errors']}", file=sys.stderr)
+            if total:
+                import filter as listing_filter
+                import rank as rank_module
+
+                print("▶ Filter + rank for new Facebook listings…")
+                listing_filter.run()
+                rank_module.run()
             return 0 if total or counts["cards"] == 0 else 1
         except Exception as exc:
             print(f"Error: {exc}", file=sys.stderr)

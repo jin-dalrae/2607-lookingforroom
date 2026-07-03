@@ -25,7 +25,7 @@ import outreach
 import notify
 
 
-STAGES = ("scout", "filter", "rank", "outreach")
+STAGES = ("scout", "facebook", "filter", "rank", "outreach")
 
 
 def run_pipeline(stages: tuple[str, ...] = STAGES) -> dict[str, int]:
@@ -94,7 +94,8 @@ def print_top_listings(n: int = 5) -> None:
         price = listing.get("price")
         price_str = f"${price}" if price else "price n/a"
         reasoning = (listing.get("reasoning") or "")[:80]
-        print(f"\n{i}. {listing.get('title', 'Untitled')}")
+        source_tag = " 📘" if (listing.get("source") or "") == "facebook" else ""
+        print(f"\n{i}. {listing.get('title', 'Untitled')}{source_tag}")
         print(f"   {price_str} · {listing.get('neighborhood', 'SF')}")
         if reasoning:
             print(f"   {reasoning}")
@@ -156,8 +157,6 @@ def _resolve_stages(args: argparse.Namespace) -> tuple[str, ...]:
     selected = [s for s, flag in only_flags.items() if flag]
     if selected:
         return tuple(selected)
-    if args.with_facebook:
-        return ("scout", "facebook", "filter", "rank", "outreach")
     return STAGES
 
 
