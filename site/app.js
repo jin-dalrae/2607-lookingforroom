@@ -5,10 +5,14 @@ const state = {
   source: "all",
   maxPrice: "",
   moveInOnly: false,
+  likedOnly: false,
   sortKey: "score",
   sortDir: -1,
   apiOnline: false,
+  apiHasLike: false,
 };
+
+const LIKED_STORAGE_KEY = "queue-liked-ids";
 
 const els = {
   tbody: document.getElementById("queue-body"),
@@ -19,6 +23,7 @@ const els = {
   source: document.getElementById("filter-source"),
   maxPrice: document.getElementById("filter-price"),
   moveInOnly: document.getElementById("filter-move-in"),
+  likedOnly: document.getElementById("filter-liked"),
   rowCount: document.getElementById("row-count"),
   apiHint: document.getElementById("api-hint"),
   generatedHint: document.getElementById("generated-hint"),
@@ -66,18 +71,41 @@ async function checkApi() {
   if (!base) {
     state.apiOnline = false;
     state.apiHasSkip = false;
+    state.apiHasLike = false;
     return;
   }
   try {
     const res = await fetch(`${base}/api/health`, { method: "GET" });
     const json = await res.json();
     state.apiOnline = Boolean(json.ok);
-    state.apiHasSkip = Array.isArray(json.endpoints)
-      ? json.endpoints.includes("skip")
-      : false;
+    const endpoints = Array.isArray(json.endpoints) ? json.endpoints : [];
+    state.apiHasSkip = endpoints.includes("skip");
+    state.apiHasLike = endpoints.includes("like");
   } catch (_) {
     state.apiOnline = false;
     state.apiHasSkip = false;
+    state.apiHasLike = false;
+  }
+}
+
+function loadLocalLikes() {
+  try {
+    const raw = localStorage.getItem(LIKED_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return new Set(Array.isArray(parsed) ? parsed : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function saveLocalLikes(ids) {
+  localStorage.setItem(LIKED_STORAGE_KEY, JSON.stringify([...ids]));
+}
+
+function mergeLocalLikes() {
+  const local = loadLocalLikes();
+  for (const item of state.data?.listings || []) {
+    if (local.has(item.id)) item.liked = true;
   }
 }
 
@@ -124,6 +152,7 @@ function searchBlob(item) {
 function passesFilters(item) {
   if (item.queueStatus !== state.tab) return false;
   if (state.moveInOnly && !item.isMatch) return false;
+  if (state.likedOnly && !item.liked) return false;
   if (state.source === "facebook" && !item.isFacebook) return false;
   if (state.source === "craigslist" && item.isFacebook) return false;
   const maxPrice = state.maxPrice === "" ? null : Number(state.maxPrice);
@@ -144,6 +173,8 @@ function sortValue(item, key) {
       if (Number.isFinite(Number(item.sqft))) return Number(item.sqft);
       if (item.sizeTier === "large") return 200;
       return -1;
+    case "liked":
+      return item.liked ? 1 : 0;
     case "score":
       return Number.isFinite(Number(item.score)) ? Number(item.score) : -1;
     case "posted":
@@ -204,12 +235,16 @@ function renderRow(item, index) {
   const posted = item.postedLabel || "—";
   const scraped = item.scrapedLabel || "—";
   const score = Number.isFinite(Number(item.score)) ? String(item.score) : "—";
-  const rowClass = item.isMatch ? "data-row match-row" : "data-row";
+  const rowClass = [
+    "data-row",
+    item.isMatch ? "match-row" : "",
+    item.liked ? "liked-row" : "",
+  ].filter(Boolean).join(" ");
   const search = esc(searchBlob(item));
+  const starClass = item.liked ? "star-btn on" : "star-btn";
 
   const actionBtns = [
     `<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`,
-    `<a class="link-btn" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">Listing</a>`,
     `<button type="button" class="link-btn toggle-detail" data-index="${index}">Message</button>`,
   ];
   if (item.queueStatus === "to_apply") {
@@ -219,7 +254,7 @@ function renderRow(item, index) {
 
   const detailRow = `
     <tr class="detail-row" data-detail-for="${index}" hidden>
-      <td colspan="12">
+      <td colspan="13">
         <details class="message-box" open>
           <summary>Apply message</summary>
           <textarea rows="8" readonly>${esc(item.message || "")}</textarea>
@@ -238,11 +273,15 @@ function renderRow(item, index) {
         data-address="${esc((item.rentalAddress || "").toLowerCase())}"
         data-price="${sortValue(item, "price")}"
         data-sqft="${sortValue(item, "sqft")}"
+        data-liked="${sortValue(item, "liked")}"
         data-score="${sortValue(item, "score")}"
         data-posted="${sortValue(item, "posted")}"
         data-scraped="${sortValue(item, "scraped")}"
         data-title="${esc((item.title || "").toLowerCase())}">
       <td class="num">${index}</td>
+      <td class="star-cell">
+        <button type="button" class="${starClass}" data-id="${esc(item.id)}" title="${item.liked ? "Unlike" : "Like"}">★</button>
+      </td>
       <td class="title-cell">
         <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a>
         ${subLines(item)}
@@ -282,7 +321,7 @@ function render() {
   const items = sortedFilteredItems();
   els.tbody.innerHTML = items.length
     ? items.map((item, i) => renderRow(item, i + 1)).join("")
-    : '<tr><td colspan="12" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
+    : '<tr><td colspan="13" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
 
   const c = state.data?.counts || {};
   els.statToApply.textContent = String(c.toApply ?? 0);
@@ -348,6 +387,47 @@ async function applyListing(id) {
     await fallbackApply(item);
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+function setItemLiked(id, liked) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (item) item.liked = liked;
+  const local = loadLocalLikes();
+  if (liked) local.add(id);
+  else local.delete(id);
+  saveLocalLikes(local);
+}
+
+async function toggleLike(id) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item) return;
+  const next = !item.liked;
+  const base = apiBase();
+
+  if (!base || !state.apiHasLike) {
+    setItemLiked(id, next);
+    render();
+    toast(next ? "Liked (saved in this browser)" : "Unliked");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${base}/api/like/${encodeURIComponent(id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ liked: next }),
+    });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+    setItemLiked(id, Boolean(json.liked));
+    const local = loadLocalLikes();
+    local.delete(id);
+    saveLocalLikes(local);
+    render();
+    toast(json.liked ? "Liked" : "Unliked");
+  } catch (err) {
+    toast(String(err.message || err), true);
   }
 }
 
@@ -436,6 +516,10 @@ function bindControls() {
     state.moveInOnly = els.moveInOnly.checked;
     rerender();
   });
+  els.likedOnly.addEventListener("change", () => {
+    state.likedOnly = els.likedOnly.checked;
+    rerender();
+  });
 
   els.table.querySelectorAll("thead th[data-sort]").forEach((th) => {
     th.addEventListener("click", () => {
@@ -450,6 +534,11 @@ function bindControls() {
   });
 
   els.tbody.addEventListener("click", (event) => {
+    const starBtn = event.target.closest(".star-btn");
+    if (starBtn) {
+      toggleLike(starBtn.dataset.id);
+      return;
+    }
     const applyBtn = event.target.closest(".apply-btn");
     if (applyBtn) {
       applyListing(applyBtn.dataset.id);
@@ -476,11 +565,12 @@ function bindControls() {
 async function init() {
   const res = await fetch("./data.json?ts=" + Date.now());
   state.data = await res.json();
+  mergeLocalLikes();
   await checkApi();
   bindControls();
   render();
 }
 
 init().catch((err) => {
-  els.tbody.innerHTML = `<tr><td colspan="12" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="13" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
 });

@@ -154,6 +154,8 @@ def init_db() -> None:
             conn.execute("ALTER TABLE listings ADD COLUMN posted_at TEXT")
         if "rental_address" not in cols:
             conn.execute("ALTER TABLE listings ADD COLUMN rental_address TEXT")
+        if "liked" not in cols:
+            conn.execute("ALTER TABLE listings ADD COLUMN liked INTEGER NOT NULL DEFAULT 0")
 
         _migrate_scores_table(conn)
         _init_applications_table(conn)
@@ -466,7 +468,7 @@ def get_pool_listings(
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
-                l.posted_at, l.rental_address, l.first_seen, l.last_seen,
+                l.posted_at, l.rental_address, l.liked, l.first_seen, l.last_seen,
                 s.score, s.is_private_room, s.is_scam_likely,
                 s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
             FROM listings l
@@ -581,7 +583,7 @@ def get_listings_with_queue_applications(
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
-                l.posted_at, l.rental_address, l.first_seen, l.last_seen,
+                l.posted_at, l.rental_address, l.liked, l.first_seen, l.last_seen,
                 s.score, s.is_private_room, s.is_scam_likely,
                 s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
             FROM applications a
@@ -630,6 +632,44 @@ def get_listing_by_id(listing_id: str) -> dict[str, Any] | None:
             (listing_id,),
         ).fetchone()
     return dict(row) if row else None
+
+
+def set_listing_liked(listing_id: str, liked: bool) -> bool | None:
+    """Set liked flag on a listing. Returns new state, or None if missing."""
+    init_db()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT id, liked FROM listings WHERE id = ?",
+            (listing_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        value = 1 if liked else 0
+        conn.execute(
+            "UPDATE listings SET liked = ? WHERE id = ?",
+            (value, listing_id),
+        )
+        conn.commit()
+    return liked
+
+
+def toggle_listing_liked(listing_id: str) -> bool | None:
+    """Flip liked flag. Returns new state, or None if listing missing."""
+    init_db()
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT liked FROM listings WHERE id = ?",
+            (listing_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        liked = not bool(row["liked"])
+        conn.execute(
+            "UPDATE listings SET liked = ? WHERE id = ?",
+            (1 if liked else 0, listing_id),
+        )
+        conn.commit()
+    return liked
 
 
 def get_ranked_listing_at_position(

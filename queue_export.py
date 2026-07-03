@@ -146,6 +146,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "channel": channel,
         "isFacebook": is_facebook_listing(row),
         "isMatch": listing_matches_criteria(row),
+        "liked": bool(row.get("liked")),
         "score": row.get("score"),
         "queueStatus": _queue_status(app_status),
         "appStatus": app_status,
@@ -178,6 +179,7 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
         "replied": sum(1 for item in listings if item["queueStatus"] == "replied"),
         "skipped": sum(1 for item in listings if item["queueStatus"] == "skipped"),
         "moveInWindow": sum(1 for item in listings if item["isMatch"]),
+        "liked": sum(1 for item in listings if item.get("liked")),
         "total": len(listings),
     }
 

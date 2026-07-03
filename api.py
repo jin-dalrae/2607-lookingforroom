@@ -20,6 +20,8 @@ from db import (
     init_db,
     mark_application_sent,
     mark_application_skipped,
+    set_listing_liked,
+    toggle_listing_liked,
 )
 from gmail_creds import SETUP_INSTRUCTIONS, gmail_configured
 from gmail_draft import create_gmail_draft, format_result
@@ -86,7 +88,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "gmail": gmail_configured(),
                     "message": "Apply API ready",
-                    "endpoints": ["draft", "sent", "skip"],
+                    "endpoints": ["draft", "sent", "skip", "like"],
                 },
             )
             return
@@ -101,6 +103,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         draft_match = re.match(r"^/api/draft/([^/]+)$", path)
         sent_match = re.match(r"^/api/sent/([^/]+)$", path)
         skip_match = re.match(r"^/api/skip/([^/]+)$", path)
+        like_match = re.match(r"^/api/like/([^/]+)$", path)
 
         if draft_match:
             listing_id = draft_match.group(1)
@@ -113,6 +116,10 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         if skip_match:
             listing_id = skip_match.group(1)
             self._handle_skip(listing_id)
+            return
+        if like_match:
+            listing_id = like_match.group(1)
+            self._handle_like(listing_id)
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
 
@@ -193,6 +200,32 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             {"ok": True, "status": app["status"] if app else "skipped"},
         )
 
+    def _handle_like(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        liked_raw = self._read_json_body().get("liked")
+        if liked_raw is None:
+            liked = toggle_listing_liked(listing_id)
+        else:
+            liked = set_listing_liked(listing_id, bool(liked_raw))
+        if liked is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+        _json_response(self, 200, {"ok": True, "liked": liked})
+
+    def _read_json_body(self) -> dict[str, Any]:
+        length = int(self.headers.get("Content-Length") or 0)
+        if length <= 0:
+            return {}
+        try:
+            raw = self.rfile.read(length)
+            parsed = json.loads(raw.decode("utf-8"))
+            return parsed if isinstance(parsed, dict) else {}
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {}
+
     def _handle_sent(self, listing_id: str) -> None:
         if not ID_RE.match(listing_id):
             _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
@@ -223,6 +256,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  POST /api/draft/<listing_id>")
     print("  POST /api/sent/<listing_id>")
     print("  POST /api/skip/<listing_id>")
+    print("  POST /api/like/<listing_id>")
     if not gmail_configured():
         print("  warning: Gmail not configured — email drafts will fail", file=sys.stderr)
     try:
