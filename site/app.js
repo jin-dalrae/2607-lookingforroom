@@ -11,11 +11,17 @@ const state = {
   apiOnline: false,
   apiHasLike: false,
   apiHasDelete: false,
+  lastClickedId: null,
+  page: 1,
 };
+
+const PAGE_SIZE = 10;
 
 const LIKED_STORAGE_KEY = "queue-liked-ids";
 const SKIPPED_STORAGE_KEY = "queue-skipped-ids";
 const DELETED_STORAGE_KEY = "queue-deleted-ids";
+const LAST_CLICKED_KEY = "queue-last-clicked-id";
+const DETAILS_PREVIEW_WORDS = 5;
 
 const els = {
   tbody: document.getElementById("queue-body"),
@@ -34,6 +40,7 @@ const els = {
   statApplied: document.getElementById("stat-applied"),
   statReplied: document.getElementById("stat-replied"),
   statSkipped: document.getElementById("stat-skipped"),
+  pagination: document.getElementById("pagination"),
 };
 
 function toast(text, isError = false) {
@@ -129,6 +136,57 @@ function saveLocalSkips(ids) {
   localStorage.setItem(SKIPPED_STORAGE_KEY, JSON.stringify([...ids]));
 }
 
+function queueStatusFromApp(appStatus) {
+  if (!appStatus || appStatus === "draft") return "to_apply";
+  if (appStatus === "skipped") return "skipped";
+  if (appStatus === "replied") return "replied";
+  if (appStatus === "sent" || appStatus === "toured") return "applied";
+  return "other";
+}
+
+function applyApplicationStatus(id, appStatus) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item) return false;
+  item.appStatus = appStatus;
+  item.queueStatus = queueStatusFromApp(appStatus);
+  return true;
+}
+
+function recalculateCounts() {
+  if (!state.data?.listings) return;
+  const counts = {
+    toApply: 0,
+    applied: 0,
+    replied: 0,
+    skipped: 0,
+    total: state.data.listings.length,
+  };
+  for (const item of state.data.listings) {
+    if (item.queueStatus === "to_apply") counts.toApply += 1;
+    else if (item.queueStatus === "applied") counts.applied += 1;
+    else if (item.queueStatus === "replied") counts.replied += 1;
+    else if (item.queueStatus === "skipped") counts.skipped += 1;
+  }
+  state.data.counts = { ...state.data.counts, ...counts };
+}
+
+async function syncApplicationStatuses() {
+  const base = apiBase();
+  if (!base || !state.apiOnline) return;
+  try {
+    const res = await fetch(`${base}/api/statuses`);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok || !json.statuses) return;
+    for (const item of state.data?.listings || []) {
+      const appStatus = json.statuses[item.id];
+      if (appStatus) applyApplicationStatus(item.id, appStatus);
+    }
+    recalculateCounts();
+  } catch (_) {
+    /* keep exported snapshot */
+  }
+}
+
 function mergeLocalSkips() {
   const local = loadLocalSkips();
   for (const item of state.data?.listings || []) {
@@ -137,6 +195,7 @@ function mergeLocalSkips() {
       item.appStatus = "skipped";
     }
   }
+  recalculateCounts();
 }
 
 function applySkipToItem(id) {
@@ -164,6 +223,48 @@ function loadLocalDeletes() {
 
 function saveLocalDeletes(ids) {
   localStorage.setItem(DELETED_STORAGE_KEY, JSON.stringify([...ids]));
+}
+
+function loadLastClickedId() {
+  try {
+    return sessionStorage.getItem(LAST_CLICKED_KEY) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveLastClickedId(id) {
+  try {
+    if (id) sessionStorage.setItem(LAST_CLICKED_KEY, id);
+    else sessionStorage.removeItem(LAST_CLICKED_KEY);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function markLastClicked(id) {
+  if (!id) return;
+  state.lastClickedId = id;
+  saveLastClickedId(id);
+  highlightLastClickedRow({ scroll: true, pulse: true });
+}
+
+function highlightLastClickedRow({ scroll = false, pulse = false } = {}) {
+  const clickedId = state.lastClickedId;
+  els.tbody.querySelectorAll("tr.data-row").forEach((row) => {
+    row.classList.toggle("last-clicked-row", Boolean(clickedId && row.dataset.id === clickedId));
+  });
+  if (!clickedId) return;
+  const clicked = els.tbody.querySelector(`tr.data-row[data-id="${CSS.escape(clickedId)}"]`);
+  if (!clicked) return;
+  if (scroll) {
+    clicked.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  if (pulse) {
+    clicked.classList.remove("last-clicked-pulse");
+    void clicked.offsetWidth;
+    clicked.classList.add("last-clicked-pulse");
+  }
 }
 
 function filterLocalDeletes() {
@@ -232,6 +333,8 @@ function searchBlob(item) {
     item.zip,
     item.transitTag,
     item.moveInLabel,
+    item.posterName,
+    item.details,
     sourceLabel(item),
   ].filter(Boolean).join(" ").toLowerCase();
 }
@@ -260,7 +363,8 @@ function sortValue(item, key) {
       if (Number.isFinite(Number(item.sqftSort))) return Number(item.sqftSort);
       return -1;
     case "movein":
-      return (item.moveInLabel || "").toLowerCase();
+      if (Number.isFinite(Number(item.moveInSort))) return Number(item.moveInSort);
+      return 999999999;
     case "liked":
       return item.liked ? 1 : 0;
     case "score":
@@ -273,6 +377,8 @@ function sortValue(item, key) {
       return addressCell(item).toLowerCase();
     case "title":
       return (item.title || "").toLowerCase();
+    case "details":
+      return (item.details || "").toLowerCase();
     case "status":
       return item.queueStatus || "";
     case "source":
@@ -294,6 +400,70 @@ function sortedFilteredItems() {
   return items;
 }
 
+function totalPages(itemCount) {
+  return Math.max(1, Math.ceil(itemCount / PAGE_SIZE));
+}
+
+function clampPage(page, itemCount) {
+  return Math.min(Math.max(1, page), totalPages(itemCount));
+}
+
+function paginatedItems(items) {
+  const total = totalPages(items.length);
+  state.page = clampPage(state.page, items.length);
+  const start = (state.page - 1) * PAGE_SIZE;
+  return items.slice(start, start + PAGE_SIZE);
+}
+
+function paginationSequence(current, total) {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, i) => i + 1);
+  }
+  const pages = new Set([1, total, current, current - 1, current + 1]);
+  const sorted = [...pages].filter((p) => p >= 1 && p <= total).sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const p of sorted) {
+    if (p - prev > 1) out.push("…");
+    out.push(p);
+    prev = p;
+  }
+  return out;
+}
+
+function renderPagination(itemCount) {
+  if (!els.pagination) return;
+  const total = totalPages(itemCount);
+  state.page = clampPage(state.page, itemCount);
+  if (total <= 1) {
+    els.pagination.innerHTML = "";
+    return;
+  }
+
+  const parts = [];
+  if (state.page > 1) {
+    parts.push(`<button type="button" class="page-btn" data-page="${state.page - 1}">Prev</button>`);
+  }
+  for (const token of paginationSequence(state.page, total)) {
+    if (token === "…") {
+      parts.push('<span class="page-ellipsis">…</span>');
+      continue;
+    }
+    const cls = token === state.page ? "page-btn active" : "page-btn";
+    parts.push(`<button type="button" class="${cls}" data-page="${token}">${token}</button>`);
+  }
+  if (state.page < total) {
+    parts.push(`<button type="button" class="page-btn" data-page="${state.page + 1}">Next</button>`);
+  }
+  els.pagination.innerHTML = parts.join("");
+}
+
+function goToPage(page) {
+  const items = sortedFilteredItems();
+  state.page = clampPage(page, items.length);
+  render();
+}
+
 function sqftCell(item) {
   return item.sqftLabel ? esc(item.sqftLabel) : "—";
 }
@@ -304,8 +474,57 @@ function addressCell(item) {
 }
 
 function subLines(item) {
-  if (!item.transitTag) return "";
-  return `<div class="cell-sub"><span class="tag-inline">${esc(item.transitTag)}</span></div>`;
+  const tags = [];
+  if (item.posterName) tags.push(`<span class="tag-inline tag-poster">${esc(item.posterName)}</span>`);
+  if (item.transitTag) tags.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
+  if (!tags.length) return "";
+  return `<div class="cell-sub">${tags.join("")}</div>`;
+}
+
+function detailsWordCount(text) {
+  return String(text || "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+function detailsPreview(text) {
+  const cleaned = String(text || "").trim();
+  if (!cleaned) return "";
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (words.length <= DETAILS_PREVIEW_WORDS) return cleaned;
+  return `${words.slice(0, DETAILS_PREVIEW_WORDS).join(" ")}…`;
+}
+
+function listingById(id) {
+  return (state.data?.listings || []).find((row) => row.id === id);
+}
+
+function detailsCell(item) {
+  const full = (item.details || "").trim();
+  if (!full) return "—";
+  const preview = detailsPreview(full);
+  const expandable = detailsWordCount(full) > DETAILS_PREVIEW_WORDS;
+  if (!expandable) return `<div class="details-cell">${esc(full)}</div>`;
+  return `<div class="details-cell expandable" data-id="${esc(item.id)}" title="Click for full details">${esc(preview)}</div>`;
+}
+
+function applyMessage(item) {
+  const template = (state.data?.messageTemplate || "").trim();
+  const url = (item?.url || "").trim();
+  if (!template) return "";
+  if (!url || template.includes(url)) return template;
+  const blocks = template.split("\n\n");
+  if (blocks.length >= 2) {
+    return `${blocks[0]}\n\n${url}\n\n${blocks.slice(1).join("\n\n")}`;
+  }
+  return `${template}\n\n${url}`;
+}
+
+function gmailComposeUrl(item) {
+  const subject = encodeURIComponent(state.data?.subject || "Room inquiry");
+  const body = encodeURIComponent(applyMessage(item));
+  const to = encodeURIComponent(item?.to || "");
+  let url = `https://mail.google.com/mail/?view=cm&fs=1&su=${subject}&body=${body}`;
+  if (item?.to) url += `&to=${to}`;
+  return url;
 }
 
 function renderRow(item, index) {
@@ -320,13 +539,12 @@ function renderRow(item, index) {
     "data-row",
     item.isMatch ? "match-row" : "",
     item.liked ? "liked-row" : "",
+    item.id === state.lastClickedId ? "last-clicked-row" : "",
   ].filter(Boolean).join(" ");
-  const search = esc(searchBlob(item));
   const starClass = item.liked ? "star-btn on" : "star-btn";
 
   const actionBtns = [
     `<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`,
-    `<button type="button" class="link-btn toggle-detail" data-index="${index}">Message</button>`,
   ];
   if (item.queueStatus === "to_apply") {
     actionBtns.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
@@ -336,32 +554,10 @@ function renderRow(item, index) {
     actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
   }
 
-  const detailRow = `
-    <tr class="detail-row" data-detail-for="${index}" hidden>
-      <td colspan="13">
-        <details class="message-box" open>
-          <summary>Apply message</summary>
-          <textarea rows="8" readonly>${esc(item.message || "")}</textarea>
-        </details>
-      </td>
-    </tr>`;
-
   return `
     <tr class="${rowClass}"
         data-index="${index}"
-        data-id="${esc(item.id)}"
-        data-search="${search}"
-        data-status="${esc(item.queueStatus)}"
-        data-source="${esc(item.isFacebook ? "facebook" : "craigslist")}"
-        data-address="${esc(addressCell(item).toLowerCase())}"
-        data-price="${sortValue(item, "price")}"
-        data-sqft="${sortValue(item, "sqft")}"
-        data-movein="${esc((item.moveInLabel || "").toLowerCase())}"
-        data-liked="${sortValue(item, "liked")}"
-        data-score="${sortValue(item, "score")}"
-        data-posted="${sortValue(item, "posted")}"
-        data-scraped="${sortValue(item, "scraped")}"
-        data-title="${esc((item.title || "").toLowerCase())}">
+        data-id="${esc(item.id)}">
       <td class="num">${index}</td>
       <td class="star-cell">
         <button type="button" class="${starClass}" data-id="${esc(item.id)}" title="${item.liked ? "Unlike" : "Like"}">★</button>
@@ -371,6 +567,7 @@ function renderRow(item, index) {
         <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a>
         ${subLines(item)}
       </td>
+      <td class="details-col">${detailsCell(item)}</td>
       <td class="num">${esc(price)}</td>
       <td class="num sqft-cell">${sqftCell(item)}</td>
       <td>${esc(moveIn)}</td>
@@ -380,16 +577,11 @@ function renderRow(item, index) {
       <td><span class="badge badge-${st.css}">${esc(st.label)}</span></td>
       <td><span class="badge badge-channel">${esc(sourceLabel(item))}</span></td>
       <td class="links-cell">${actionBtns.join("")}</td>
-    </tr>
-    ${detailRow}`;
+    </tr>`;
 }
 
 function dataRows() {
   return Array.from(els.tbody.querySelectorAll("tr.data-row"));
-}
-
-function detailFor(index) {
-  return els.tbody.querySelector(`tr.detail-row[data-detail-for="${index}"]`);
 }
 
 function updateSortHeaders() {
@@ -403,75 +595,51 @@ function updateSortHeaders() {
 
 function render() {
   const items = sortedFilteredItems();
+  const pageItems = paginatedItems(items);
+  const startIndex = (state.page - 1) * PAGE_SIZE;
   els.tbody.innerHTML = items.length
-    ? items.map((item, i) => renderRow(item, i + 1)).join("")
-    : '<tr><td colspan="13" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
+    ? pageItems.map((item, i) => renderRow(item, startIndex + i + 1)).join("")
+    : '<tr><td colspan="14" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
 
   const c = state.data?.counts || {};
   els.statToApply.textContent = String(c.toApply ?? 0);
   els.statApplied.textContent = String(c.applied ?? 0);
   els.statReplied.textContent = String(c.replied ?? 0);
   els.statSkipped.textContent = String(c.skipped ?? 0);
-  els.rowCount.textContent = `${items.length} shown`;
+  const total = totalPages(items.length);
+  els.rowCount.textContent = items.length
+    ? `${pageItems.length} on page · ${items.length} total · page ${state.page}/${total}`
+    : "0 shown";
+  renderPagination(items.length);
   els.generatedHint.textContent = state.data?.generatedAt
     ? `Generated ${state.data.generatedAt}. Refresh: python listings_page.py`
     : "";
   els.apiHint.textContent = state.apiOnline
     ? state.apiHasSkip
-      ? "API online on your Mac — Apply creates real Gmail drafts."
+      ? "API online — Mark sent / Skip sync to database."
       : "API online but outdated — restart api.py so Skip works."
-    : "API offline — Apply opens Gmail compose or copies Facebook message.";
+    : "API offline — Apply still works; Mark sent / Skip save in this browser only.";
 
   updateSortHeaders();
+  highlightLastClickedRow();
 }
 
 async function fallbackApply(item) {
   if (item.isFacebook) {
-    const copied = await copyText(item.message);
+    const copied = await copyText(applyMessage(item));
     window.open(item.url, "_blank", "noopener,noreferrer");
     toast(copied ? "Message copied — paste in Messenger" : "Open listing and paste your message");
     return;
   }
-  window.open(item.gmailComposeUrl, "_blank", "noopener,noreferrer");
+  window.open(gmailComposeUrl(item), "_blank", "noopener,noreferrer");
   toast("Gmail compose opened — save as draft or send");
 }
 
 async function applyListing(id) {
   const item = (state.data?.listings || []).find((row) => row.id === id);
   if (!item) return;
-
-  const base = apiBase();
-  if (!base) {
-    await fallbackApply(item);
-    return;
-  }
-
-  const btn = document.querySelector(`.apply-btn[data-id="${CSS.escape(id)}"]`);
-  if (btn) btn.disabled = true;
-
-  try {
-    const res = await fetch(`${base}/api/draft/${encodeURIComponent(id)}`, { method: "POST" });
-    const json = await res.json();
-    if (!json.ok) {
-      if (json.fallback === "gmailComposeUrl") {
-        await fallbackApply(item);
-        return;
-      }
-      throw new Error(json.error || "Apply failed");
-    }
-    if (json.mode === "facebook") {
-      const copied = await copyText(json.message || item.message);
-      window.open(json.url || item.url, "_blank", "noopener,noreferrer");
-      toast(copied ? "Message copied — paste in Messenger" : "Open listing and paste message");
-    } else {
-      toast("Gmail draft saved — open Gmail → Drafts, then Mark sent");
-    }
-  } catch (err) {
-    toast(String(err.message || err), true);
-    await fallbackApply(item);
-  } finally {
-    if (btn) btn.disabled = false;
-  }
+  markLastClicked(id);
+  await fallbackApply(item);
 }
 
 function setItemLiked(id, liked) {
@@ -581,7 +749,8 @@ async function markSkipped(id) {
     const local = loadLocalSkips();
     local.delete(id);
     saveLocalSkips(local);
-    applySkipToItem(id);
+    applyApplicationStatus(id, json.status || "skipped");
+    recalculateCounts();
     render();
     toast("Skipped");
   } catch (err) {
@@ -599,15 +768,8 @@ async function markSent(id) {
     const res = await fetch(`${base}/api/sent/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || "Failed");
-    const item = (state.data?.listings || []).find((row) => row.id === id);
-    if (item) {
-      item.queueStatus = "applied";
-      item.appStatus = "sent";
-    }
-    if (state.data?.counts) {
-      state.data.counts.toApply = Math.max(0, (state.data.counts.toApply || 0) - 1);
-      state.data.counts.applied = (state.data.counts.applied || 0) + 1;
-    }
+    applyApplicationStatus(id, json.status || "sent");
+    recalculateCounts();
     render();
     toast("Marked as sent");
   } catch (err) {
@@ -617,30 +779,34 @@ async function markSent(id) {
 
 function bindControls() {
   const rerender = () => render();
+  const rerenderFromStart = () => {
+    state.page = 1;
+    rerender();
+  };
 
   els.search.addEventListener("input", () => {
     state.search = els.search.value;
-    rerender();
+    rerenderFromStart();
   });
   els.status.addEventListener("change", () => {
     state.tab = els.status.value;
-    rerender();
+    rerenderFromStart();
   });
   els.source.addEventListener("change", () => {
     state.source = els.source.value;
-    rerender();
+    rerenderFromStart();
   });
   els.maxPrice.addEventListener("input", () => {
     state.maxPrice = els.maxPrice.value;
-    rerender();
+    rerenderFromStart();
   });
   els.moveInOnly.addEventListener("change", () => {
     state.moveInOnly = els.moveInOnly.checked;
-    rerender();
+    rerenderFromStart();
   });
   els.likedOnly.addEventListener("change", () => {
     state.likedOnly = els.likedOnly.checked;
-    rerender();
+    rerenderFromStart();
   });
 
   els.table.querySelectorAll("thead th[data-sort]").forEach((th) => {
@@ -649,13 +815,34 @@ function bindControls() {
       if (state.sortKey === key) state.sortDir *= -1;
       else {
         state.sortKey = key;
-        state.sortDir = key === "title" || key === "address" || key === "movein" ? 1 : -1;
+        state.sortDir = key === "title" || key === "address" || key === "movein" || key === "details" ? 1 : -1;
       }
-      rerender();
+      rerenderFromStart();
     });
   });
 
+  els.pagination?.addEventListener("click", (event) => {
+    const btn = event.target.closest(".page-btn");
+    if (!btn?.dataset.page) return;
+    goToPage(Number(btn.dataset.page));
+  });
+
   els.tbody.addEventListener("click", (event) => {
+    const detailsEl = event.target.closest(".details-cell.expandable");
+    if (detailsEl) {
+      const item = listingById(detailsEl.dataset.id);
+      const full = (item?.details || "").trim();
+      const preview = detailsPreview(full);
+      const expanded = detailsEl.classList.toggle("expanded");
+      detailsEl.textContent = expanded ? full : preview;
+      return;
+    }
+    const titleLink = event.target.closest(".title-cell a");
+    if (titleLink) {
+      const row = titleLink.closest("tr.data-row");
+      if (row?.dataset.id) markLastClicked(row.dataset.id);
+      return;
+    }
     const starBtn = event.target.closest(".star-btn");
     if (starBtn) {
       toggleLike(starBtn.dataset.id);
@@ -681,25 +868,30 @@ function bindControls() {
       deleteListing(deleteBtn.dataset.id);
       return;
     }
-    const toggleBtn = event.target.closest(".toggle-detail");
-    if (toggleBtn) {
-      const detail = detailFor(toggleBtn.dataset.index);
-      if (detail) detail.hidden = !detail.hidden;
-    }
   });
 }
 
 async function init() {
+  state.lastClickedId = loadLastClickedId();
   const res = await fetch("./data.json?ts=" + Date.now());
   state.data = await res.json();
   mergeLocalLikes();
-  mergeLocalSkips();
   filterLocalDeletes();
   await checkApi();
+  await syncApplicationStatuses();
+  mergeLocalSkips();
   bindControls();
   render();
+  if (state.lastClickedId) {
+    highlightLastClickedRow({ scroll: true });
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && state.lastClickedId) {
+      highlightLastClickedRow({ scroll: true, pulse: true });
+    }
+  });
 }
 
 init().catch((err) => {
-  els.tbody.innerHTML = `<tr><td colspan="13" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
+  els.tbody.innerHTML = `<tr><td colspan="14" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
 });

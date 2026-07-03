@@ -12,12 +12,21 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from config import CRAIGSLIST_URL, OAKLAND_CRAIGSLIST_URL
+from config import (
+    CRAIGSLIST_URL,
+    DOWNTOWN_OAKLAND_CRAIGSLIST_URL,
+    EMERYVILLE_CRAIGSLIST_URL,
+    SOUTH_SF_CRAIGSLIST_URL,
+    WEST_OAKLAND_CRAIGSLIST_URL,
+)
 from db import init_db, upsert_listing
 
 SEARCH_URLS = [
     ("San Francisco", CRAIGSLIST_URL),
-    ("Oakland / East Bay", OAKLAND_CRAIGSLIST_URL),
+    ("West Oakland", WEST_OAKLAND_CRAIGSLIST_URL),
+    ("Downtown Oakland", DOWNTOWN_OAKLAND_CRAIGSLIST_URL),
+    ("Emeryville", EMERYVILLE_CRAIGSLIST_URL),
+    ("South San Francisco", SOUTH_SF_CRAIGSLIST_URL),
 ]
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -150,6 +159,9 @@ def fetch_listing_details(session: requests.Session, url: str) -> tuple[str, str
         description = body.get_text("\n", strip=True)
     else:
         description = ""
+
+    if posting_blob:
+        description = f"{posting_blob}\n\n{description}" if description else posting_blob
 
     return post_id, description, posted_at
 

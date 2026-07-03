@@ -55,13 +55,18 @@ SEARCH_CRITERIA = {
         "Spanish-only listings."
     ),
     "current_location": "SOMA",
-    "location": ["San Francisco city center", "Oakland (near BART, not far east)"],
+    "location": [
+        "San Francisco (whole city)",
+        "Emeryville",
+        "West Oakland",
+        "Downtown Oakland",
+        "South San Francisco",
+    ],
     "location_note": (
-        "Currently in SOMA — prefers listings near city center: SOMA, South Beach, "
-        "Mission Bay, Financial District, Civic Center, Hayes Valley, Inner Mission, "
-        "Potrero, downtown, Embarcadero. Homes near Caltrain stations are acceptable "
-        "too (4th & King, Bayshore, Peninsula corridor). Hard exclude: Excelsior, "
-        "Oakland east. Outer Sunset, Parkside, Ingleside deprioritized unless Caltrain."
+        "Only these areas: all of San Francisco, Emeryville, West Oakland, Downtown "
+        "Oakland, South San Francisco. Strongly prefer SF with Muni Metro/tram within "
+        "~10 min walk. Reject other East Bay (Berkeley, Temescal, Lake Merritt, "
+        "Hayward, etc.), Daly City, male-only households, and listings over a week old."
     ),
     "transit_priority": (
         "Bonus only for Muni Metro/tram or Caltrain within ~10 min walk — not BART. "
@@ -79,9 +84,10 @@ SEARCH_CRITERIA = {
         "Embarcadero",
         "Downtown SF",
         "Castro",
-        "Lake Merritt",
-        "Temescal",
-        "Rockridge",
+        "West Oakland",
+        "Downtown Oakland",
+        "Emeryville",
+        "South San Francisco",
     ],
     "neighborhoods_penalize": [
         "Outer Sunset",
@@ -95,9 +101,10 @@ SEARCH_CRITERIA = {
     ],
     "penalize": [
         "Berkeley",
-        "East Bay outside Oakland",
-        "Oakland east",
-        "Daly City (even if tagged SFSU)",
+        "East Bay outside allowed zones",
+        "Oakland (except West Oakland)",
+        "Daly City",
+        "male-only households",
         "obvious scams",
     ],
 }
@@ -108,10 +115,28 @@ CRAIGSLIST_URL = (
     "?max_price=1300&private_room=1&availabilityMode=0"
 )
 
-OAKLAND_CRAIGSLIST_URL = (
+WEST_OAKLAND_CRAIGSLIST_URL = (
     "https://sfbay.craigslist.org/search/eby/roo"
     "?max_price=1300&private_room=1&availabilityMode=0"
-    "&query=oakland"
+    "&query=west+oakland"
+)
+
+DOWNTOWN_OAKLAND_CRAIGSLIST_URL = (
+    "https://sfbay.craigslist.org/search/eby/roo"
+    "?max_price=1300&private_room=1&availabilityMode=0"
+    "&query=downtown+oakland"
+)
+
+EMERYVILLE_CRAIGSLIST_URL = (
+    "https://sfbay.craigslist.org/search/eby/roo"
+    "?max_price=1300&private_room=1&availabilityMode=0"
+    "&query=emeryville"
+)
+
+SOUTH_SF_CRAIGSLIST_URL = (
+    "https://sfbay.craigslist.org/search/sfc/roo"
+    "?max_price=1300&private_room=1&availabilityMode=0"
+    "&query=south+san+francisco"
 )
 
 # --- Facebook Marketplace (requires: python scout_facebook.py login) ---
@@ -127,24 +152,44 @@ FACEBOOK_MARKETPLACE_SEARCHES = (
         "?query=room%20for%20rent&maxPrice=1300&exact=false",
     ),
     (
+        "SF room available",
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        "?query=room%20available&maxPrice=1300&exact=false",
+    ),
+    (
+        "SF bedroom rent",
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        "?query=bedroom%20for%20rent&maxPrice=1300&exact=false",
+    ),
+    (
         "SF sublet",
         "https://www.facebook.com/marketplace/sanfrancisco/search/"
         "?query=sublet%20room&maxPrice=1300&exact=false",
     ),
     (
-        "Oakland room",
-        "https://www.facebook.com/marketplace/oakland/search/"
-        "?query=room%20rent&maxPrice=1300&exact=false",
+        "SF roommate",
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        "?query=roommate%20wanted&maxPrice=1300&exact=false",
     ),
     (
-        "Oakland private room",
+        "West Oakland room",
         "https://www.facebook.com/marketplace/oakland/search/"
-        "?query=private%20room&maxPrice=1300&exact=false",
+        "?query=west%20oakland%20room&maxPrice=1300&exact=false",
     ),
     (
-        "East Bay room",
+        "Downtown Oakland room",
         "https://www.facebook.com/marketplace/oakland/search/"
-        "?query=room%20available&maxPrice=1300&exact=false",
+        "?query=downtown%20oakland%20room&maxPrice=1300&exact=false",
+    ),
+    (
+        "Emeryville room",
+        "https://www.facebook.com/marketplace/oakland/search/"
+        "?query=emeryville%20room&maxPrice=1300&exact=false",
+    ),
+    (
+        "South SF room",
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        "?query=south%20san%20francisco%20room&maxPrice=1300&exact=false",
     ),
 )
 
@@ -154,12 +199,86 @@ POLL_INTERVAL_HOURS = 6
 # --- Database ---
 DB_PATH = os.getenv("DB_PATH", "listings.db")
 
-# --- Hard location exclusions (never show in matches) ---
+# --- Allowed location zones (whitelist) ---
+LOCATION_ALLOWED = {
+    "san_francisco": {
+        "label": "San Francisco",
+        "terms": (
+            "san francisco",
+            "city of san francisco",
+            "sf ",
+            " sf",
+            "soma",
+            "mission",
+            "castro",
+            "hayes",
+            "potrero",
+            "embarcadero",
+            "financial district",
+            "civic center",
+            "south beach",
+            "mission bay",
+            "dogpatch",
+            "noe valley",
+            "bernal",
+            "inner mission",
+            "russian hill",
+            "north beach",
+            "sunset",
+            "richmond district",
+            "outer richmond",
+            "inner richmond",
+            "excelsior",
+            "bayview",
+            "ingleside",
+            "parkside",
+            "outer sunset",
+            "inner sunset",
+            "west portal",
+            "forest hill",
+            "marina",
+            "pacific heights",
+            "presidio",
+            "treasure island",
+        ),
+        "url_markers": ("/san-francisco-", "sfc/", "search/sfc", "marketplace/sanfrancisco"),
+    },
+    "emeryville": {
+        "label": "Emeryville",
+        "terms": ("emeryville",),
+    },
+    "west_oakland": {
+        "label": "West Oakland",
+        "terms": ("west oakland",),
+    },
+    "downtown_oakland": {
+        "label": "Downtown Oakland",
+        "terms": ("downtown oakland", "uptown oakland"),
+    },
+    "south_san_francisco": {
+        "label": "South San Francisco",
+        "terms": ("south san francisco", "ssf", "94080", "94083"),
+    },
+}
+
+# --- Hard location exclusions (supplement whitelist) ---
 LOCATION_EXCLUDE = {
     "terms": (
-        "excelsior",
-        "oakland east",
-        "east oakland",
+        "berkeley",
+        "albany",
+        "el cerrito",
+        "richmond",
+        "hayward",
+        "fremont",
+        "san leandro",
+        "davis",
+        "davis, ca",
+        "alameda",
+        "pinole",
+        "concord",
+        "walnut creek",
+        "daly city",
+        "colma",
         "pittsburg",
         "pittsburgh",
         "antioch",
@@ -168,6 +287,15 @@ LOCATION_EXCLUDE = {
         "benicia",
         "el sobrante",
         "livermore",
+        "temescal",
+        "rockridge",
+        "lake merritt",
+        "fruitvale",
+        "jack london",
+        "adams point",
+        "grand lake",
+        "oakland east",
+        "east oakland",
     ),
     "blob_terms": (
         "near oakland zoo",

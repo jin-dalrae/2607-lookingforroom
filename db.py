@@ -173,12 +173,13 @@ def get_unscored(limit: int = 20) -> list[dict[str, Any]]:
     return get_unscored_listings(limit=limit)
 
 
-def get_listing_by_url(url: str) -> sqlite3.Row | None:
+def get_listing_by_url(url: str) -> dict[str, Any] | None:
     with get_connection() as conn:
-        return conn.execute(
+        row = conn.execute(
             "SELECT * FROM listings WHERE url = ?",
             (url,),
         ).fetchone()
+    return dict(row) if row else None
 
 
 def upsert_listing(
@@ -296,6 +297,21 @@ def get_all_listings(limit: int | None = None) -> list[dict[str, Any]]:
                 ORDER BY last_seen DESC
                 """
             ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_listings_batch(*, offset: int = 0, limit: int = 20) -> list[dict[str, Any]]:
+    """Return one page of listings for batched rescoring."""
+    init_db()
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT * FROM listings
+            ORDER BY id
+            LIMIT ? OFFSET ?
+            """,
+            (limit, offset),
+        ).fetchall()
     return [dict(r) for r in rows]
 
 
@@ -505,13 +521,21 @@ def get_pool_listings(
             continue
         from match import is_excluded_location
 
+        from listing_dates import is_stale_listing
+
         if is_excluded_location(listing):
+            continue
+        if is_stale_listing(listing):
             continue
         if "location_reject" in room_flags:
             continue
         if "office_sublease_reject" in room_flags:
             continue
         if "spanish_listing_reject" in room_flags:
+            continue
+        if "male_household_reject" in room_flags:
+            continue
+        if "stale_listing_reject" in room_flags:
             continue
         results.append(listing)
 
@@ -520,14 +544,18 @@ def get_pool_listings(
 
 def backfill_rental_addresses(*, limit: int | None = None) -> int:
     """Parse rental_address/neighborhood from stored descriptions. Returns rows updated."""
-    from locations import parse_facebook_listing_fields, resolve_neighborhood_from_text
+    from locations import (
+        extract_post_display_address,
+        is_fb_search_area_label,
+        is_junk_location_line,
+        resolve_neighborhood_from_text,
+    )
 
     init_db()
     with get_connection() as conn:
         query = """
             SELECT id, title, description, neighborhood, rental_address, source
             FROM listings
-            WHERE description IS NOT NULL AND trim(description) != ''
         """
         params: tuple[Any, ...] = ()
         if limit is not None:
@@ -538,10 +566,11 @@ def backfill_rental_addresses(*, limit: int | None = None) -> int:
     updated = 0
     for row in rows:
         listing = dict(row)
-        fields = parse_facebook_listing_fields(listing.get("description") or "")
-        rental_address = (fields.get("rental_address") or "").strip()
-        if not rental_address:
-            continue
+        rental_address = extract_post_display_address(listing).strip()
+        existing_address = (listing.get("rental_address") or "").strip()
+        existing_hood = (listing.get("neighborhood") or "").strip()
+        address_is_junk = is_junk_location_line(existing_address)
+        hood_is_junk = is_junk_location_line(existing_hood)
 
         neighborhood = listing.get("neighborhood") or ""
         hood_low = neighborhood.lower()
@@ -549,15 +578,17 @@ def backfill_rental_addresses(*, limit: int | None = None) -> int:
             not neighborhood
             or hood_low.startswith("facebook")
             or "marketplace" in hood_low
+            or is_fb_search_area_label(neighborhood)
+            or hood_is_junk
         ):
-            neighborhood = resolve_neighborhood_from_text(
+            neighborhood = rental_address or resolve_neighborhood_from_text(
                 title=str(listing.get("title") or ""),
                 description=str(listing.get("description") or ""),
-                fallback=fields.get("display_place") or neighborhood or "Unknown",
+                fallback=neighborhood if not hood_is_junk else "Unknown",
             )
 
-        existing_address = (listing.get("rental_address") or "").strip()
-        existing_hood = (listing.get("neighborhood") or "").strip()
+        if not rental_address and not hood_is_junk and not address_is_junk:
+            continue
         if rental_address == existing_address and neighborhood == existing_hood:
             continue
 
@@ -687,6 +718,97 @@ def backfill_posted_at(
     return stats
 
 
+def backfill_facebook_details(
+    *,
+    limit: int = 25,
+    queue_only: bool = True,
+) -> dict[str, int]:
+    """Fetch Facebook listing pages to fill in text descriptions (no images)."""
+    import time
+
+    from listing_description import needs_description_backfill
+
+    init_db()
+    if limit <= 0:
+        return {"fetched": 0, "updated": 0, "unchanged": 0, "errors": 0}
+
+    try:
+        from facebook_session import session_configured
+        from scout_facebook import DETAIL_DELAY_SEC, _playwright_context, fetch_listing_details
+    except ImportError:
+        return {"fetched": 0, "updated": 0, "unchanged": 0, "errors": 0}
+
+    if not session_configured():
+        return {"fetched": 0, "updated": 0, "unchanged": 0, "errors": 0}
+
+    candidates = get_queue_export_listings() if queue_only else []
+    if not queue_only:
+        with get_connection() as conn:
+            candidates = [
+                dict(row)
+                for row in conn.execute(
+                    """
+                    SELECT * FROM listings
+                    WHERE source = 'facebook'
+                    ORDER BY last_seen DESC
+                    """
+                ).fetchall()
+            ]
+
+    needs = [row for row in candidates if needs_description_backfill(row)][:limit]
+    stats = {"fetched": 0, "updated": 0, "unchanged": 0, "errors": 0}
+    if not needs:
+        return stats
+
+    from playwright.sync_api import sync_playwright
+
+    from scout_facebook import _prepare_detail_page
+
+    with sync_playwright() as playwright:
+        browser, context = _playwright_context(playwright, headless=True)
+        try:
+            page = context.new_page()
+            _prepare_detail_page(page)
+            for index, listing in enumerate(needs):
+                url = str(listing.get("url") or "").strip()
+                if not url:
+                    continue
+                if index > 0:
+                    time.sleep(DETAIL_DELAY_SEC)
+                print(
+                    f"  [{index + 1}/{len(needs)}] {url}",
+                    flush=True,
+                )
+                try:
+                    details = fetch_listing_details(page, url)
+                    outcome = upsert_listing(
+                        listing_id=details["listing_id"],
+                        url=details["url"],
+                        title=details["title"],
+                        price=details.get("price"),
+                        neighborhood=details.get("neighborhood"),
+                        description=details.get("description"),
+                        posted_at=details.get("posted_at"),
+                        rental_address=details.get("rental_address"),
+                        source="facebook",
+                    )
+                    stats["fetched"] += 1
+                    if outcome == "updated":
+                        stats["updated"] += 1
+                    else:
+                        stats["unchanged"] += 1
+                    desc_len = len(str(details.get("description") or ""))
+                    print(f"    → {outcome}, description {desc_len} chars", flush=True)
+                except Exception as exc:
+                    stats["errors"] += 1
+                    print(f"    → error: {exc}", flush=True)
+        finally:
+            context.close()
+            browser.close()
+
+    return stats
+
+
 def get_listings_with_queue_applications(
     *,
     statuses: tuple[str, ...] = ("skipped", "sent", "replied", "toured", "draft"),
@@ -716,11 +838,72 @@ def get_listings_with_queue_applications(
     return [dict(row) for row in rows]
 
 
+_JUNK_FB_TITLES = frozenset(
+    {
+        "",
+        "notifications",
+        "notification",
+        "facebook marketplace listing",
+    }
+)
+
+
+def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
+    """Facebook listings with card-level scrape data for the apply queue UI."""
+    from listing_dates import is_stale_listing
+    from locations import is_excluded_location
+    from match import price_within_budget
+
+    init_db()
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT
+                l.id, l.url, l.title, l.price, l.neighborhood,
+                l.description, l.move_in_date, l.source,
+                l.posted_at, l.rental_address, l.liked, l.first_seen, l.last_seen,
+                s.score, s.is_private_room, s.is_scam_likely,
+                s.move_in_compatible, s.flags_json, s.reasoning, s.scored_at
+            FROM listings l
+            LEFT JOIN scores s ON l.id = s.listing_id
+            WHERE l.source = 'facebook'
+              AND l.id NOT IN (
+                  SELECT listing_id FROM applications WHERE status = 'rejected'
+              )
+            ORDER BY l.last_seen DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+
+    results: list[dict[str, Any]] = []
+    for row in rows:
+        listing = dict(row)
+        title = (listing.get("title") or "").strip().lower()
+        if title in _JUNK_FB_TITLES:
+            continue
+        if listing.get("is_scam_likely"):
+            continue
+        if not price_within_budget(listing):
+            continue
+        if is_excluded_location(listing):
+            continue
+        if is_stale_listing(listing):
+            continue
+        results.append(listing)
+    return results
+
+
 def get_queue_export_listings(*, pool_limit: int = 500) -> list[dict[str, Any]]:
-    """Pool listings plus any with queue application rows (e.g. skipped after filter)."""
+    """Pool listings plus Facebook card rows and any with queue application rows."""
     pool = get_pool_listings(limit=pool_limit, exclude_scams=True)
     seen = {row["id"] for row in pool}
     rows = list(pool)
+    for row in get_facebook_card_listings(limit=pool_limit):
+        if row["id"] in seen:
+            continue
+        seen.add(row["id"])
+        rows.append(row)
     for row in get_listings_with_queue_applications(limit=pool_limit):
         if row["id"] in seen:
             continue
@@ -916,6 +1099,20 @@ def get_channel_stats() -> dict[str, dict[str, int]]:
         by_channel.setdefault(ch, {})
         by_channel[ch][str(row["status"])] = int(row["n"])
     return by_channel
+
+
+def get_application_status_map() -> dict[str, str]:
+    """Map listing_id → application status for queue-visible rows."""
+    init_db()
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT listing_id, status
+            FROM applications
+            WHERE status NOT IN ('rejected', 'accepted')
+            """
+        ).fetchall()
+    return {str(row["listing_id"]): str(row["status"]) for row in rows}
 
 
 def get_application_stats() -> dict[str, int]:

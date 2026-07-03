@@ -8,7 +8,7 @@
 </head>
 <body>
   <h1>Apply queue</h1>
-  <p class="hint">Sort by clicking column headers · <a href="/map.html">Map view</a>. <strong>Apply</strong> saves a Gmail draft when the Mac API is on.
+  <p class="hint">Sort by clicking column headers · <a href="/map.html">Map view</a>. <strong>Apply</strong> opens Gmail compose or copies a Facebook message — no server call.
     After you send, use <strong>Mark sent</strong> — then track replies on
     <a href="/listing-mails-communication">listing mail communication</a>.</p>
   <p class="hint" id="api-hint">Checking API…</p>
@@ -60,6 +60,7 @@
           <th data-sort="liked" class="star-col" title="Liked">★</th>
           <th data-sort="address">Address</th>
           <th data-sort="title">Title</th>
+          <th data-sort="details">Details</th>
           <th data-sort="price">$/mo</th>
           <th data-sort="sqft">Sqft</th>
           <th data-sort="movein">Move-in</th>
@@ -72,10 +73,12 @@
         </tr>
       </thead>
       <tbody id="queue-body">
-        <tr><td colspan="13" class="hint">Loading listings…</td></tr>
+        <tr><td colspan="14" class="hint">Loading listings…</td></tr>
       </tbody>
     </table>
   </div>
+
+  <nav class="pagination" id="pagination" aria-label="Listing pages"></nav>
 
   <div class="toast" id="toast"></div>
   <script src="/app.js" defer></script>

@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import quote
 
 from apply import load_profile, standard_apply_message
-from channels import default_channel_for_listing, is_facebook_listing
+from channels import is_facebook_listing
 from db import (
     get_application_by_listing_id,
     get_queue_export_listings,
@@ -18,19 +18,26 @@ from db import (
 )
 from listing_dates import (
     format_timestamp_label,
-    is_estimated_posted,
-    posted_label,
+    posted_display_label,
     resolve_posted_at,
 )
 from map_coords import resolve_listing_coords
-from locations import listing_location_context, resolve_display_area, resolve_listing_place
+from locations import (
+    extract_post_display_address,
+    listing_location_context,
+    resolve_display_area,
+    resolve_listing_place,
+)
 from match import listing_matches_criteria
-from listing_move_in import extract_move_in_label
+from listing_description import extract_listing_description
+from listing_move_in import extract_move_in_label, move_in_sort_value
+from listing_poster import extract_poster_name
 from listing_size import extract_sqft_from_post, sqft_sort_value
 from send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).parent / "site" / "data.json"
 EXPORT_LIMIT = 500
+EXPORT_DESCRIPTION_MAX = 500
 
 
 def _gmail_compose_url(*, to: str, subject: str, body: str) -> str:
@@ -85,23 +92,19 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     app_status = app["status"] if app else None
     url = row.get("url") or ""
     subject = (profile.get("email_subject") or "Room Rental Inquiry by Aug 18").strip()
-    message = standard_apply_message(profile, url)
     to_addr = extract_listing_email(row) or ""
-    channel = default_channel_for_listing(row)
-    if app and app.get("channel"):
-        channel = app["channel"]
-
-    skipped_at = app.get("updated_at") if app and app_status == "skipped" else None
     place = resolve_listing_place(row)
     loc = listing_location_context(row)
-    rental_address = place.get("rental_address") or loc.get("rental_location") or ""
-    display_neighborhood = resolve_display_area(row)
+    post_address = extract_post_display_address(row)
+    rental_address = post_address or place.get("rental_address") or loc.get("rental_location") or ""
+    display_neighborhood = post_address or resolve_display_area(row)
     sqft_label = extract_sqft_from_post(row)
+    move_in_label = extract_move_in_label(row)
+    description_text = extract_listing_description(row)
+    if len(description_text) > EXPORT_DESCRIPTION_MAX:
+        description_text = description_text[: EXPORT_DESCRIPTION_MAX - 1].rstrip() + "…"
 
     posted_at = resolve_posted_at(row)
-    posted_estimated = not posted_at or is_estimated_posted(
-        {**row, "posted_at": posted_at or row.get("posted_at")}
-    )
     scraped_at = row.get("last_seen")
     coords = resolve_listing_coords(
         {
@@ -126,29 +129,23 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "zip": place.get("zip") or "",
         "url": url,
         "source": row.get("source") or "craigslist",
-        "channel": channel,
         "isFacebook": is_facebook_listing(row),
         "isMatch": listing_matches_criteria(row),
         "liked": bool(row.get("liked")),
         "score": row.get("score"),
         "queueStatus": _queue_status(app_status),
-        "appStatus": app_status,
         "postedAt": posted_at,
-        "postedEstimated": posted_estimated,
-        "postedLabel": posted_label(posted_at, estimated=posted_estimated),
+        "postedLabel": posted_display_label(row),
         "lat": coords[0] if coords else None,
         "lng": coords[1] if coords else None,
         "scrapedAt": scraped_at,
         "scrapedLabel": format_timestamp_label(scraped_at),
-        "firstScrapedAt": row.get("first_seen"),
-        "skippedAt": skipped_at,
-        "skippedLabel": format_timestamp_label(skipped_at) if skipped_at else None,
         "transitTag": _transit_tag(row.get("flags_json"), row.get("reasoning") or ""),
-        "moveInLabel": extract_move_in_label(row),
+        "moveInLabel": move_in_label,
+        "moveInSort": move_in_sort_value(move_in_label),
+        "posterName": extract_poster_name(row),
+        "details": description_text or None,
         "to": to_addr,
-        "subject": subject,
-        "message": message,
-        "gmailComposeUrl": _gmail_compose_url(to=to_addr, subject=subject, body=message),
     }
 
 
@@ -181,12 +178,21 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
     }
 
 
-def write_queue_data(path=None) -> __import__("pathlib").Path:
-    from db import backfill_neighborhoods, backfill_posted_at, backfill_rental_addresses
+def write_queue_data(path=None, *, run_backfill: bool = True) -> __import__("pathlib").Path:
+    if run_backfill:
+        from db import (
+            backfill_facebook_details,
+            backfill_neighborhoods,
+            backfill_posted_at,
+            backfill_rental_addresses,
+        )
 
-    backfill_rental_addresses()
-    backfill_neighborhoods()
-    backfill_posted_at(remote_limit=200)
+        backfill_rental_addresses()
+        backfill_neighborhoods()
+        backfill_posted_at(remote_limit=int(os.getenv("POSTED_BACKFILL_LIMIT", "50")))
+        detail_limit = int(os.getenv("DETAIL_BACKFILL_LIMIT", "0"))
+        if detail_limit > 0:
+            backfill_facebook_details(limit=detail_limit, queue_only=True)
     target = path or OUTPUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = build_queue_payload()

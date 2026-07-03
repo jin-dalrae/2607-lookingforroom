@@ -7,7 +7,8 @@ import json
 from typing import Any
 
 from config import SEARCH_CRITERIA
-from locations import is_excluded_location
+from listing_dates import is_stale_listing
+from locations import is_excluded_location, is_san_francisco_location, listing_location_context
 
 MOVE_IN_FITS_OK = frozenset({"ideal"})
 
@@ -71,6 +72,9 @@ def listing_matches_criteria(
     if is_excluded_location(row):
         return False
 
+    if is_stale_listing(row):
+        return False
+
     if not move_in_fits_window(row):
         return False
 
@@ -83,29 +87,64 @@ def listing_matches_criteria(
         return False
     if "spanish_listing_reject" in room_flags:
         return False
+    if "male_household_reject" in room_flags:
+        return False
+    if "stale_listing_reject" in room_flags:
+        return False
 
     return True
 
 
-def _has_transit_10min_bonus(row: dict[str, Any]) -> bool:
+def _flags_list(row: dict[str, Any]) -> list[str]:
     payload = _flags_payload(row.get("flags_json"))
     flags = payload.get("flags") or []
     if not isinstance(flags, list):
         flags = [str(flags)]
-    return "transit_10min_bonus" in flags
+    return flags
+
+
+def _has_transit_10min_bonus(row: dict[str, Any]) -> bool:
+    return "transit_10min_bonus" in _flags_list(row)
+
+
+def _is_sf_with_muni(row: dict[str, Any]) -> bool:
+    flags = _flags_list(row)
+    if "muni_tram_adjacent" not in flags:
+        return False
+    ctx = listing_location_context(row)
+    return is_san_francisco_location(
+        primary=ctx["primary"],
+        full=ctx["full"],
+        rental_location=ctx["rental_location"],
+        city=ctx["city"],
+        url=ctx["url"],
+    )
+
+
+def _is_sf_listing(row: dict[str, Any]) -> bool:
+    ctx = listing_location_context(row)
+    return is_san_francisco_location(
+        primary=ctx["primary"],
+        full=ctx["full"],
+        rental_location=ctx["rental_location"],
+        city=ctx["city"],
+        url=ctx["url"],
+    )
 
 
 def sort_matches(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """$800–$1000 first, then Muni/Caltrain ≤10 min walk, then up to $1300 by price."""
+    """SF+Muni first, then $800–$1000, then transit ≤10 min, then price."""
     lo = SEARCH_CRITERIA["price_focus_min"]
     hi = SEARCH_CRITERIA["price_focus_max"]
     midpoint = (lo + hi) / 2
 
-    def _key(row: dict[str, Any]) -> tuple[int, int, float, int, str]:
+    def _key(row: dict[str, Any]) -> tuple[int, int, int, int, float, int, str]:
         price = int(row.get("price") or 9999)
+        sf_muni = 0 if _is_sf_with_muni(row) else 1
+        sf_city = 0 if _is_sf_listing(row) else 1
         in_band = 0 if price_in_focus_band(row) else 1
         transit_bonus = 0 if _has_transit_10min_bonus(row) else 1
         band_distance = abs(price - midpoint) if in_band == 0 else float(price - hi)
-        return (in_band, transit_bonus, band_distance, price, row.get("title") or "")
+        return (sf_muni, sf_city, in_band, transit_bonus, band_distance, price, row.get("title") or "")
 
     return sorted(rows, key=_key)

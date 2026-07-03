@@ -37,23 +37,35 @@ def _clean_phrase(text: str) -> str:
     return cleaned
 
 
+def _format_sqft_number(raw: str) -> str:
+    digits = raw.replace(",", "").strip()
+    return digits
+
+
+def _format_dimension(raw: str) -> str:
+    text = _clean_phrase(raw)
+    text = re.sub(r"\s*(?:sq\.?\s*ft\.?|sqft|square\s*feet?)\s*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s*(?:ft|feet|foot)\s*$", "", text, flags=re.IGNORECASE)
+    return re.sub(r"\s*([x×])\s*", r"x", text)
+
+
 def extract_sqft_from_post(row: dict[str, Any]) -> str | None:
-    """Return size text exactly as stated in the listing, or None."""
+    """Return compact size text from the listing, or None."""
     blob = _listing_text(row)
     if not blob:
         return None
 
     dim_sqft = _DIM_SQFT_PHRASE_RE.search(blob)
     if dim_sqft:
-        return _clean_phrase(dim_sqft.group(1))
+        return _format_dimension(dim_sqft.group(1))
 
     explicit = _SQFT_PHRASE_RE.search(blob)
     if explicit:
-        return _clean_phrase(explicit.group(0))
+        return _format_sqft_number(explicit.group(1))
 
     dim = _DIM_PHRASE_RE.search(blob)
     if dim:
-        return _clean_phrase(dim.group(1))
+        return _format_dimension(dim.group(1))
 
     size_word = _SIZE_WORD_RE.search(blob)
     if size_word:

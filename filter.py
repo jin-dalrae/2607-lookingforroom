@@ -10,10 +10,16 @@ import sys
 from datetime import date, timedelta
 from typing import Any
 
+from listing_dates import is_stale_listing
 from locations import (
+    allowed_location_zone,
     has_sf_primary_signal,
+    is_downtown_oakland_location,
+    is_emeryville_location,
     is_excluded_location as _location_hard_exclude,
     is_far_east_bay_location,
+    is_san_francisco_location,
+    is_west_oakland_location,
     listing_location_context,
     mentions_any_place,
 )
@@ -29,7 +35,7 @@ from config import (
 )
 from db import (
     count_listings,
-    get_all_listings,
+    get_listings_batch,
     get_unscored_listings,
     init_db,
     save_score,
@@ -60,10 +66,10 @@ CRITERIA = {
         "household but not required."
     ),
     "location": (
-        "SF city center preferred (currently in SOMA): SOMA, South Beach, Mission Bay, "
-        "Financial District, Civic Center, Hayes Valley, Inner Mission, Potrero, downtown, "
-        "Embarcadero. Homes near Caltrain stations work too (4th & King, Bayshore, Peninsula). "
-        "Oakland near BART OK. Outer Sunset/Parkside/Ingleside too far unless Caltrain-adjacent."
+        "Only: whole San Francisco, Emeryville, West Oakland, Downtown Oakland, "
+        "South San Francisco. "
+        "Strongly prefer SF with Muni Metro/tram within ~10 min walk (currently in SOMA). "
+        "Reject other East Bay, Daly City, and male-only households."
     ),
     "current_location": SEARCH_CRITERIA.get("current_location", "SOMA"),
     "transit_priority": (
@@ -83,8 +89,10 @@ CRITERIA = {
         "shared room / couple room / double occupancy",
         "SRO / hostel / single room occupancy",
         "curtain or partition 'rooms'",
-        "Berkeley and East Bay outside Oakland",
-        "Daly City unless BART-adjacent",
+        "Berkeley and East Bay outside allowed zones",
+        "Oakland except West Oakland",
+        "Daly City",
+        "male-only / men-only households",
     ],
     "room_type_flags": [
         "private_bedroom",
@@ -144,7 +152,6 @@ EAST_BAY_PENALIZE = (
     "fremont",
     "san leandro",
     "alameda",
-    "emeryville",
     "pinole",
     "antioch",
     "pleasant hill",
@@ -159,7 +166,30 @@ EAST_BAY_PENALIZE = (
     "castro valley",
 )
 
-DALY_CITY_TERMS = ("daly city", "daly-city", "colma", "south san francisco", "ssf")
+DALY_CITY_TERMS = ("daly city", "daly-city", "colma")
+
+MALE_HOUSEHOLD_REJECT = (
+    "male household",
+    "male only",
+    "men only",
+    "guys only",
+    "all male",
+    "all-male",
+    "naturist male",
+    "male roommates only",
+    "male roommate only",
+    "looking for a male",
+    "looking for male",
+    "male tenant only",
+    "male housemate",
+    "for men only",
+    "no women",
+    "no females",
+    "male living",
+    "men's house",
+    "mens house",
+    "male house",
+)
 
 OAKLAND_FAR_TERMS = (
     "oakland east",
@@ -1665,6 +1695,20 @@ def _has_shared_bedroom_signal(text: str) -> bool:
     return _mentions_any(text, SHARED_BEDROOM_REJECT)
 
 
+def _is_male_household_listing(text: str, *, title: str = "") -> bool:
+    """Reject male-only / men-only roommate households."""
+    blob = f"{title} {text}".strip().lower()
+    if not blob:
+        return False
+    if _mentions_any(blob, MALE_HOUSEHOLD_REJECT):
+        return True
+    if re.search(r"\bmale\s+only\b", blob):
+        return True
+    if re.search(r"\bmen\s+only\b", blob):
+        return True
+    return False
+
+
 def _has_sro_signal(text: str) -> bool:
     if "not sro" in text or "no sro" in text:
         return False
@@ -1830,6 +1874,24 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     if _location_hard_exclude(row):
         flags.append("location_reject")
 
+    zone = allowed_location_zone(row)
+    if zone == "san_francisco":
+        flags.append("sf_ok")
+    elif zone == "west_oakland":
+        flags.append("west_oakland_ok")
+    elif zone == "downtown_oakland":
+        flags.append("downtown_oakland_ok")
+    elif zone == "emeryville":
+        flags.append("emeryville_ok")
+    elif zone == "south_san_francisco":
+        flags.append("south_sf_ok")
+
+    if _is_male_household_listing(text, title=loc["title"]):
+        flags.append("male_household_reject")
+
+    if is_stale_listing(row):
+        flags.append("stale_listing_reject")
+
     office_sublease = _is_office_sublease(text, title=loc["title"])
     if office_sublease:
         flags.append("office_sublease_reject")
@@ -1838,9 +1900,27 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     if _is_spanish_promoted_listing(language_text, title=loc["title"]):
         flags.append("spanish_listing_reject")
 
-    oakland_ok = _is_oakland(primary) or _is_oakland(text)
-    if oakland_ok:
-        flags.append("oakland_ok")
+    west_oakland_ok = is_west_oakland_location(
+        primary=primary,
+        rental_location=loc["rental_location"],
+        city=loc["city"],
+    )
+    if west_oakland_ok:
+        flags.append("west_oakland_ok")
+    downtown_oakland_ok = is_downtown_oakland_location(
+        primary=primary,
+        rental_location=loc["rental_location"],
+        city=loc["city"],
+    )
+    if downtown_oakland_ok:
+        flags.append("downtown_oakland_ok")
+    emeryville_ok = is_emeryville_location(
+        primary=primary,
+        rental_location=loc["rental_location"],
+        city=loc["city"],
+    )
+    if emeryville_ok:
+        flags.append("emeryville_ok")
 
     east_bay_penalty = _is_east_bay_penalty(
         primary=primary,
@@ -1879,6 +1959,8 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         "location_reject" in flags
         or "office_sublease_reject" in flags
         or "spanish_listing_reject" in flags
+        or "male_household_reject" in flags
+        or "stale_listing_reject" in flags
     ):
         score = 5
     elif is_scam and room_type in ("shared_bedroom_reject", "sro_reject"):
@@ -1904,7 +1986,22 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
             score += location_adjust
         elif sfsu_close:
             score += 5
-        if oakland_ok and not far_oakland:
+        if west_oakland_ok and not far_oakland:
+            score += 6
+        if downtown_oakland_ok and not far_oakland:
+            score += 6
+        if emeryville_ok:
+            score += 4
+        if "sf_ok" in flags and transit_tier == "muni_tram" and _muni_caltrain_within_10min(text):
+            score += 12
+        elif "sf_ok" in flags and transit_tier == "muni_tram":
+            score += 6
+        elif is_san_francisco_location(
+            primary=primary,
+            rental_location=loc["rental_location"],
+            city=loc["city"],
+            url=loc["url"],
+        ):
             score += 8
         if east_bay_penalty:
             score -= 25
@@ -1939,8 +2036,16 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         parts.append(_location_tier_label(location_tier))
     elif sfsu_close:
         parts.append("near SFSU (SF)")
-    if oakland_ok and not far_oakland:
-        parts.append("Oakland OK")
+    if west_oakland_ok and not far_oakland:
+        parts.append("West Oakland OK")
+    if downtown_oakland_ok and not far_oakland:
+        parts.append("Downtown Oakland OK")
+    if emeryville_ok:
+        parts.append("Emeryville OK")
+    if "male_household_reject" in flags:
+        parts.append("male-only household — reject")
+    if "stale_listing_reject" in flags:
+        parts.append("listed over a week ago — skip")
     if far_oakland:
         if normal_outer_rent:
             parts.append("Oakland east — far but $700–800 is typical")
@@ -2295,11 +2400,17 @@ def run(*, rescore_all: bool = False, use_gemini: bool = True) -> int:
         seed_test_listings()
 
     if rescore_all:
-        listings = get_all_listings()
-        if not listings:
-            return 0
-        print(f"Re-scoring all {len(listings)} listing(s)…")
-        return _score_listings(listings, use_gemini=use_gemini, label="listing")
+        total = 0
+        offset = 0
+        while True:
+            batch = get_listings_batch(offset=offset, limit=BATCH_SIZE)
+            if not batch:
+                break
+            total += _score_listings(batch, use_gemini=use_gemini, label="listing")
+            offset += len(batch)
+            if len(batch) < BATCH_SIZE:
+                break
+        return total
 
     total = 0
     while True:

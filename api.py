@@ -16,6 +16,7 @@ from apply import create_application, load_profile, standard_apply_message
 from channels import default_channel_for_listing, is_facebook_listing
 from db import (
     _listing_with_score,
+    get_application_status_map,
     get_listing_by_id,
     init_db,
     mark_application_rejected,
@@ -89,8 +90,15 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "gmail": gmail_configured(),
                     "message": "Apply API ready",
-                    "endpoints": ["draft", "sent", "skip", "like", "delete"],
+                    "endpoints": ["draft", "sent", "skip", "like", "delete", "statuses"],
                 },
+            )
+            return
+        if path == "/api/statuses":
+            _json_response(
+                self,
+                200,
+                {"ok": True, "statuses": get_application_status_map()},
             )
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})

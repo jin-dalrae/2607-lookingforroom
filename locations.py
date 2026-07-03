@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from config import LOCATION_EXCLUDE
+from config import LOCATION_ALLOWED, LOCATION_EXCLUDE
 
 # Cities too far from SF/Oakland BART corridor — hard reject in matches and pool.
 FAR_EAST_BAY_EXCLUDE = (
@@ -62,6 +62,26 @@ _CITY_STATE_ZIP_RE = re.compile(
     r"^(.+?),\s*([A-Z]{2})(?:,\s*(\d{5}))?$",
     re.IGNORECASE,
 )
+_CITY_STATE_LINE_RE = re.compile(
+    r"^(.+?,\s*(?:CA|California)(?:,\s*\d{5})?)$",
+    re.IGNORECASE,
+)
+
+_JUNK_LOCATION_LINES = frozenset({
+    "apparel",
+    "notifications",
+    "notification",
+    "marketplace",
+    "facebook",
+    "unknown",
+    "see more",
+    "filters",
+    "create new listing",
+    "your listings",
+    "inbox",
+    "buying",
+    "selling",
+})
 
 _SF_PRIMARY_MARKERS = (
     "san francisco",
@@ -130,6 +150,77 @@ def strip_facebook_page_junk(text: str) -> str:
     return trimmed
 
 
+_PROSE_LOCATION_MARKERS = (
+    "available now",
+    "please email",
+    "reply with",
+    "for rent",
+    "includes utilities",
+    "contact info",
+    "tell us about",
+    "serious interest",
+    "no pets",
+    "not a party",
+    "furnished room",
+    "private room",
+    "shared kitchen",
+    "i will confirm",
+    "starting when",
+    "show contact",
+    "hablo español",
+)
+
+
+def is_junk_location_line(text: str) -> bool:
+    """True for Marketplace chrome or listing titles mistaken as addresses."""
+    raw = (text or "").strip()
+    if not raw or len(raw) < 3:
+        return True
+    low = raw.lower()
+    if low in _JUNK_LOCATION_LINES:
+        return True
+    if low.startswith("facebook") or "marketplace" in low:
+        return True
+    if len(raw) > 80:
+        return True
+    words = raw.split()
+    if len(words) > 10:
+        return True
+    if raw.count(".") >= 2 or (re.search(r"[.!?]", raw) and len(words) > 4):
+        return True
+    if len(raw) > 40 and any(marker in low for marker in _PROSE_LOCATION_MARKERS):
+        return True
+    if re.search(r"\b\d+\s+(?:bed|beds|habitaci[oó]n|ba[ñn]o|bath|baths)\b", low):
+        return True
+    if re.search(r"\b(?:house|apartment|departamento|casa|condo|studio)\b", low) and "," not in raw:
+        return True
+    return False
+
+
+def parse_location_line(text: str) -> str | None:
+    """Return a location string when a line looks like an address or CL hood."""
+    raw = (text or "").strip()
+    if not raw or is_junk_location_line(raw):
+        return None
+    if _CITY_STATE_LINE_RE.match(raw):
+        return raw
+    if _CITY_STATE_ZIP_RE.match(raw):
+        return raw
+    low = raw.lower()
+    if "/" in raw:
+        if len(raw) > 60 or re.search(r"[.!?]", raw):
+            return None
+        parts = [part.strip() for part in raw.split("/")]
+        if not parts or any(len(part) > 40 for part in parts):
+            return None
+        return raw
+    if low.startswith("city of "):
+        return raw
+    if re.match(r"^[A-Za-z .'-]+,\s*(?:CA|California)\s*$", raw, re.IGNORECASE):
+        return raw
+    return None
+
+
 def parse_city_state_zip(location: str) -> tuple[str, str, str]:
     """Split 'Castro Valley, CA, 94546' into city/state/zip."""
     raw = (location or "").strip()
@@ -150,13 +241,19 @@ def extract_rental_location(text: str) -> str:
         return ""
     match = _RENTAL_LOCATION_RE.search(text)
     if match:
-        return match.group(1).strip()
+        candidate = match.group(1).strip()
+        if not is_junk_location_line(candidate):
+            return candidate
     addr = _LISTED_ADDRESS_RE.search(text)
     if addr:
-        return addr.group(1).strip()
+        candidate = addr.group(1).strip()
+        if not is_junk_location_line(candidate):
+            return candidate
     rentals = _FB_RENTALS_LINE_RE.search(text)
     if rentals:
-        return rentals.group(1).strip()
+        candidate = rentals.group(1).strip()
+        if not is_junk_location_line(candidate):
+            return candidate
     return ""
 
 
@@ -169,7 +266,9 @@ def parse_facebook_listing_fields(text: str) -> dict[str, str]:
     street_address = ""
     rentals = _FB_RENTALS_LINE_RE.search(raw) or _FB_RENTALS_LINE_RE.search(cleaned)
     if rentals:
-        street_address = rentals.group(1).strip()
+        candidate = rentals.group(1).strip()
+        if not is_junk_location_line(candidate):
+            street_address = candidate
 
     city, state, zip_code = parse_city_state_zip(rental_location)
     if not city and street_address:
@@ -195,6 +294,8 @@ def parse_facebook_listing_fields(text: str) -> dict[str, str]:
 def resolve_listing_place(row: dict[str, Any]) -> dict[str, str]:
     """Return stored or parsed location fields for any listing."""
     stored_address = str(row.get("rental_address") or "").strip()
+    if stored_address and is_junk_location_line(stored_address):
+        stored_address = ""
     raw_description = str(row.get("description") or "")
     parsed = parse_facebook_listing_fields(raw_description)
     if stored_address:
@@ -294,26 +395,229 @@ def is_config_excluded_location(row: dict[str, Any]) -> bool:
     return False
 
 
+_OAKLAND_ONLY_TERMS = (
+    "oakland",
+    "rockridge",
+    "macarthur",
+    "lake merritt",
+    "fruitvale",
+    "temescal",
+    "jack london",
+    "uptown oakland",
+    "downtown oakland",
+    "adams point",
+    "grand lake",
+)
+
+
+def _url_in_allowed_market(url: str, zone_key: str) -> bool:
+    cfg = LOCATION_ALLOWED.get(zone_key, {})
+    markers = cfg.get("url_markers") or ()
+    low = (url or "").lower()
+    return any(marker in low for marker in markers)
+
+
+def is_san_francisco_location(
+    *,
+    primary: str = "",
+    full: str = "",
+    rental_location: str = "",
+    city: str = "",
+    url: str = "",
+) -> bool:
+    """True when listing is in San Francisco city (whole city OK)."""
+    city_low = (city or "").strip().lower()
+    if city_low in ("san francisco", "sf"):
+        return True
+    if has_sf_primary_signal(primary):
+        return True
+    sf_terms = LOCATION_ALLOWED["san_francisco"]["terms"]
+    if rental_location and mentions_any_place(rental_location.lower(), sf_terms):
+        return True
+    if mentions_any_place(primary, sf_terms):
+        return True
+    if _url_in_allowed_market(url, "san_francisco"):
+        if not mentions_any_place(primary, _OAKLAND_ONLY_TERMS):
+            if not mentions_any_place(primary, LOCATION_ALLOWED["emeryville"]["terms"]):
+                if not is_south_san_francisco_city(primary=primary, city=city):
+                    return True
+    if full and has_sf_primary_signal(full):
+        return True
+    return False
+
+
+def is_emeryville_location(
+    *,
+    primary: str = "",
+    rental_location: str = "",
+    city: str = "",
+) -> bool:
+    terms = LOCATION_ALLOWED["emeryville"]["terms"]
+    city_low = (city or "").strip().lower()
+    if city_low == "emeryville":
+        return True
+    if rental_location and mentions_any_place(rental_location.lower(), terms):
+        return True
+    return mentions_any_place(primary, terms)
+
+
+def is_west_oakland_location(
+    *,
+    primary: str = "",
+    rental_location: str = "",
+    city: str = "",
+) -> bool:
+    terms = LOCATION_ALLOWED["west_oakland"]["terms"]
+    city_low = (city or "").strip().lower()
+    if city_low == "west oakland":
+        return True
+    if rental_location and mentions_any_place(rental_location.lower(), terms):
+        return True
+    return mentions_any_place(primary, terms)
+
+
+def is_downtown_oakland_location(
+    *,
+    primary: str = "",
+    rental_location: str = "",
+    city: str = "",
+) -> bool:
+    terms = LOCATION_ALLOWED["downtown_oakland"]["terms"]
+    city_low = (city or "").strip().lower()
+    if city_low == "downtown oakland":
+        return True
+    if rental_location and mentions_any_place(rental_location.lower(), terms):
+        return True
+    return mentions_any_place(primary, terms)
+
+
+def is_south_san_francisco_city(
+    *,
+    primary: str = "",
+    rental_location: str = "",
+    city: str = "",
+) -> bool:
+    """South San Francisco city — not southern SF neighborhoods."""
+    city_low = (city or "").strip().lower()
+    if city_low == "south san francisco":
+        return True
+    terms = LOCATION_ALLOWED["south_san_francisco"]["terms"]
+    if rental_location and mentions_any_place(rental_location.lower(), terms):
+        return True
+    if mention_place(primary, "south san francisco"):
+        return True
+    if mention_place(primary, "ssf") and "san francisco" not in primary:
+        return True
+    for zip_code in ("94080", "94083"):
+        if zip_code in primary or (rental_location and zip_code in rental_location):
+            return True
+    return False
+
+
+def allowed_location_zone(row: dict[str, Any]) -> str | None:
+    """Return whitelist zone key when listing is in an allowed area."""
+    ctx = listing_location_context(row)
+    common = {
+        "primary": ctx["primary"],
+        "rental_location": ctx["rental_location"],
+        "city": ctx["city"],
+    }
+    if is_san_francisco_location(
+        **common,
+        full=ctx["full"],
+        url=ctx["url"],
+    ):
+        return "san_francisco"
+    if is_emeryville_location(**common):
+        return "emeryville"
+    if is_west_oakland_location(**common):
+        return "west_oakland"
+    if is_downtown_oakland_location(**common):
+        return "downtown_oakland"
+    if is_south_san_francisco_city(**common):
+        return "south_san_francisco"
+    return None
+
+
+def _parsed_location_excluded(row: dict[str, Any]) -> bool:
+    """True when listing detail text proves a disallowed city."""
+    place = resolve_listing_place(row)
+    ctx = listing_location_context(row)
+    for blob in (
+        (place.get("city") or "").strip().lower(),
+        (place.get("rental_address") or "").strip().lower(),
+        ctx["primary"],
+    ):
+        if not blob:
+            continue
+        for term in LOCATION_EXCLUDE["terms"]:
+            if mention_place(blob, term):
+                return True
+        if mentions_any_place(blob, FAR_EAST_BAY_EXCLUDE):
+            return True
+    return False
+
+
+def is_fb_allowed_for_queue(row: dict[str, Any]) -> bool:
+    """Facebook card from an allowed search feed — include unless detail proves exclusion."""
+    if str(row.get("source") or "") != "facebook":
+        return False
+    if not zone_from_search_area_label(str(row.get("neighborhood") or "")):
+        return False
+    if _parsed_location_excluded(row):
+        return False
+    return True
+
+
+def is_allowed_location(row: dict[str, Any]) -> bool:
+    """Allowed whitelist zones, or Facebook listings from our allowed search feeds."""
+    if allowed_location_zone(row) is not None:
+        return True
+    return is_fb_allowed_for_queue(row)
+
+
 def is_excluded_location(row: dict[str, Any]) -> bool:
     """Any location that should never appear in the apply queue."""
     if is_config_excluded_location(row):
         return True
     ctx = listing_location_context(row)
-    return is_far_east_bay_location(
+    if is_far_east_bay_location(
         primary=ctx["primary"],
         full=ctx["full"],
         rental_location=ctx["rental_location"],
-    )
+    ):
+        return True
+    if not is_allowed_location(row):
+        return True
+    return False
 
 
 _SEARCH_AREA_LABELS: dict[str, str] = {
     "sf private room": "San Francisco",
     "sf room rent": "San Francisco",
+    "sf room available": "San Francisco",
+    "sf bedroom rent": "San Francisco",
     "sf sublet": "San Francisco",
-    "oakland room": "Oakland",
-    "oakland private room": "Oakland",
-    "east bay room": "East Bay",
+    "sf roommate": "San Francisco",
+    "west oakland room": "West Oakland",
+    "downtown oakland room": "Downtown Oakland",
+    "emeryville room": "Emeryville",
+    "south sf room": "South San Francisco",
 }
+
+_DISPLAY_AREA_TO_ZONE: dict[str, str] = {
+    "San Francisco": "san_francisco",
+    "West Oakland": "west_oakland",
+    "Downtown Oakland": "downtown_oakland",
+    "Emeryville": "emeryville",
+    "South San Francisco": "south_san_francisco",
+}
+
+
+def zone_from_search_area_label(text: str) -> str | None:
+    """Map a Facebook search-area label to a whitelist zone key."""
+    label = clean_display_area(text)
+    return _DISPLAY_AREA_TO_ZONE.get(label)
 
 
 def clean_display_area(text: str) -> str:
@@ -340,13 +644,17 @@ def clean_display_area(text: str) -> str:
     return cleaned
 
 
+def is_fb_search_area_label(text: str) -> bool:
+    """True when neighborhood is our Marketplace search name, not the rental city."""
+    return zone_from_search_area_label(text) is not None
+
+
 def resolve_display_area(row: dict[str, Any]) -> str:
     """Human area label for tables — never includes Facebook source chrome."""
     place = resolve_listing_place(row)
     for candidate in (
         place.get("display_place"),
         place.get("city"),
-        clean_display_area(str(row.get("neighborhood") or "")),
     ):
         cleaned = clean_display_area(str(candidate or ""))
         if cleaned and cleaned.lower() not in ("unknown", "facebook marketplace"):
@@ -358,7 +666,17 @@ def resolve_display_area(row: dict[str, Any]) -> str:
         fallback="",
     )
     cleaned = clean_display_area(inferred)
-    return cleaned or "Unknown"
+    if cleaned and cleaned.lower() not in ("unknown", "facebook marketplace"):
+        return cleaned
+
+    hood = str(row.get("neighborhood") or "")
+    if str(row.get("source") or "") == "facebook" and is_fb_search_area_label(hood):
+        return "Unknown"
+    if hood and not is_junk_location_line(hood):
+        cleaned = clean_display_area(hood)
+        if cleaned and cleaned.lower() not in ("unknown", "facebook marketplace"):
+            return cleaned
+    return "Unknown"
 
 
 def resolve_neighborhood_from_text(
@@ -378,15 +696,11 @@ def resolve_neighborhood_from_text(
     cleaned = strip_facebook_page_junk(description)
     blob = f"{title} {cleaned}".lower()
     for label in (
+        "South San Francisco",
+        "West Oakland",
+        "Downtown Oakland",
+        "Emeryville",
         "San Francisco",
-        "Oakland",
-        "Berkeley",
-        "Daly City",
-        "El Sobrante",
-        "Pittsburg",
-        "Antioch",
-        "Castro Valley",
-        "Vallejo",
         "SOMA",
         "Mission",
     ):
@@ -400,3 +714,94 @@ def clean_listing_description(description: str | None) -> str | None:
         return None
     cleaned = strip_facebook_page_junk(description)
     return cleaned or None
+
+
+def _hood_from_title(title: str) -> str:
+    """Pull a short place name from Craigslist-style room titles."""
+    raw = (title or "").strip()
+    if not raw or len(raw) > 60:
+        return ""
+    if len(raw.split()) > 12 or re.search(r"[.!?]", raw):
+        return ""
+    for pattern in (
+        r"\broom\s+(?:in|at|near|-)\s+(.+)$",
+        r"(?:furnished|private|cozy|spacious|clean|beautiful|new)\s+room\s+(.+)$",
+    ):
+        match = re.search(pattern, raw, re.IGNORECASE)
+        if not match:
+            continue
+        candidate = match.group(1).strip(" -–—")
+        if candidate and len(candidate) <= 40 and not is_junk_location_line(candidate):
+            return candidate
+    return ""
+
+
+def _extract_street_from_description(description: str) -> str:
+    if not description:
+        return ""
+    match = _LISTED_ADDRESS_RE.search(description)
+    if match:
+        candidate = match.group(1).strip()
+        if not is_junk_location_line(candidate):
+            return candidate
+    for line in description.splitlines():
+        line = line.strip()
+        if not line or len(line) > 80:
+            continue
+        if re.match(r"^\d{1,5}\s+\S", line) and "," in line:
+            if not is_junk_location_line(line):
+                return line
+    return ""
+
+
+def extract_post_display_address(row: dict[str, Any]) -> str:
+    """Address or area as written in the listing post (re-parsed from title + body)."""
+    title = str(row.get("title") or "").strip()
+    description = str(row.get("description") or "").strip()
+    source = str(row.get("source") or "")
+
+    if source == "craigslist":
+        hood = str(row.get("neighborhood") or "").strip()
+        if hood and not is_junk_location_line(hood):
+            return hood
+        street = _extract_street_from_description(description)
+        if street:
+            return street
+        title_hood = _hood_from_title(title)
+        if title_hood:
+            return title_hood
+        inferred = resolve_neighborhood_from_text(
+            title=title,
+            description=description,
+            fallback="",
+        )
+        if inferred and not is_junk_location_line(inferred):
+            return inferred
+        loc = parse_location_line(title)
+        return loc or ""
+
+    for blob in (description, strip_facebook_page_junk(description)):
+        if not blob:
+            continue
+        rental = extract_rental_location(blob)
+        if rental:
+            return rental
+        fields = parse_facebook_listing_fields(blob)
+        rental = (fields.get("rental_address") or "").strip()
+        if rental and not is_junk_location_line(rental):
+            return rental
+
+    loc = parse_location_line(title)
+    if loc:
+        return loc
+
+    if description:
+        for line in description.splitlines():
+            line = line.strip()
+            if not line or len(line) > 80:
+                continue
+            loc = parse_location_line(line)
+            if loc:
+                return loc
+
+    return ""

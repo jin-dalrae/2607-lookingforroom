@@ -1,379 +1,280 @@
-# SF Room Finder
+# Looking for Room
 
-Automated pipeline to scout Craigslist for rooms in San Francisco and Oakland, filter by your criteria, rank matches, and draft outreach messages.
+A personal room-finding system for the San Francisco Bay Area. It scouts Craigslist and Facebook Marketplace, filters listings against your criteria, scores and ranks matches, and gives you a browser-based **apply queue** to work through outreach without losing track of what you've sent.
+
+Everything lives in a local SQLite database (`listings.db`). The apply queue is a static site (`site/`) backed by a small local API for status updates and Gmail drafts.
+
+## What it does
+
+| Stage | What happens |
+|-------|----------------|
+| **Scout** | Polls Craigslist search URLs and Facebook Marketplace (Playwright) for new room listings |
+| **Filter** | Tags each listing — move-in window, room type, location zone, scams, transit bonuses |
+| **Rank** | Scores listings (Gemini + heuristics) and writes a top-15 digest (`digest.md`) |
+| **Apply queue** | Exports filtered listings to `site/data.json` for the web UI |
+| **Track** | Records sent / skipped / replied status per listing in the `applications` table |
+
+You still send messages yourself (Craigslist relay, Facebook Messenger, or Gmail). The tool finds listings, helps you decide, drafts copy, and remembers what you've already contacted.
 
 ## Search criteria
 
+Configured in `config.py` → `SEARCH_CRITERIA` and `profile.yaml`:
+
 | Setting | Value |
 |---------|-------|
-| Max rent | $1,300/mo |
-| Room type | Private bedroom or small shared house (~3 people, ~2 roommates) |
-| Reject | Shared bedroom, SRO/hostel, curtain/partition rooms, scams |
-| Location | SF + Oakland |
-| Transit | **Bonus** for Muni Metro/tram or Caltrain within **~10 min walk** — **not BART**; generic Muni bus is weaker |
-| Move-in window | Aug 16–18, 2026 (±2 weeks flexible) |
+| Max rent | $1,300/mo ($800–$1,000 preferred) |
+| Room type | Private bedroom or small shared house (~3 people) |
+| Reject | Shared bedroom, SRO/hostel, curtain rooms, scams, far East Bay |
+| Location | San Francisco, Emeryville, West Oakland, Downtown Oakland, South San Francisco |
+| Transit bonus | Muni Metro/tram or Caltrain within ~10 min walk (not BART-first) |
+| Move-in window | July 20 – August 18, 2026 |
 
-Configured in `config.py` → `SEARCH_CRITERIA`.
+## How it works
+
+```mermaid
+flowchart LR
+  subgraph sources [Sources]
+    CL[Craigslist scout.py]
+    FB[Facebook scout_facebook.py]
+  end
+
+  subgraph pipeline [Pipeline]
+    DB[(listings.db)]
+    F[filter.py tags]
+    R[rank.py scores]
+  end
+
+  subgraph ui [Apply queue]
+    EXP[queue_export.py]
+    JSON[site/data.json]
+    WEB[site/ UI :8765]
+    API[api.py :8787]
+  end
+
+  CL --> DB
+  FB --> DB
+  DB --> F --> R
+  DB --> EXP --> JSON --> WEB
+  WEB -->|Mark sent / Skip / Like| API --> DB
+```
+
+### 1. Scouting
+
+**Craigslist** (`scout.py`) fetches configured search result pages, then visits each listing for the full post body, price, neighborhood, and posted date.
+
+**Facebook Marketplace** (`scout_facebook.py`) uses Playwright with a saved browser session (`facebook_state.json`). After a one-time login it polls several search feeds (SF, Oakland, Emeryville, etc.) and can backfill listing descriptions on demand.
+
+Both write into `listings.db` via `db.upsert_listing()`.
+
+### 2. Filtering and scoring
+
+`filter.py` reads each listing and sets structured flags in `flags_json`:
+
+- **Move-in fit** — parsed from post text (`listing_move_in.py`); must land in July 20 – Aug 18
+- **Location** — whitelist zones and hard rejects (`locations.py`)
+- **Room type** — private vs shared-bedroom / SRO / scam signals
+- **Transit** — Muni Metro, Caltrain, BART proximity bonuses
+- **Rent period** — rejects weekly/daily/sublet when flagged
+
+`rank.py` combines Gemini scoring (when `GCP_KEY` is set) with heuristic bonuses/penalties and produces `digest.md`.
+
+`match.py` exposes `listing_matches_criteria()` — the same rules the apply queue uses for the "My move-in window" filter.
+
+### 3. Field extraction
+
+Several small modules parse post text at export time (no duplicate storage in the UI JSON):
+
+| Module | Extracts |
+|--------|----------|
+| `listing_move_in.py` | Move-in label and sort key (past → now → future) |
+| `listing_dates.py` | Posted time ("4 days ago") from post text |
+| `listing_size.py` | Square footage |
+| `listing_description.py` | Clean description body (details column) |
+| `listing_poster.py` | Poster name when visible |
+| `locations.py` | Address, neighborhood, city; rejects description prose mistaken for location |
+
+### 4. Apply queue export
+
+`listings_page.py` → `queue_export.py` builds `site/data.json`:
+
+- Pulls the listing pool from SQLite (scored matches + Facebook cards + anything with an application row)
+- Runs light backfills (addresses, neighborhoods, posted dates)
+- Caps description text at 500 chars to keep the page small (~250 KB for ~200 listings)
+- Embeds one shared `messageTemplate` from `profile.yaml` (not per-row message blobs)
+
+### 5. Apply queue UI
+
+Start the workers:
+
+```bash
+scripts/workers.sh start
+```
+
+| Service | URL | Role |
+|---------|-----|------|
+| Queue UI | http://127.0.0.1:8765/ | Table of listings — sort, filter, paginate (10/page) |
+| Apply API | http://127.0.0.1:8787/ | Persist sent / skipped / liked / Gmail draft |
+| Map view | http://127.0.0.1:8765/map.html | Approximate pins from neighborhood centroids |
+
+**Apply** is client-side: Craigslist rows open a Gmail compose URL (or copy the message); Facebook rows copy a message with the listing URL appended. No server call until you mark status.
+
+**Mark sent** / **Skip** POST to the API and update SQLite. Refresh the queue with `python listings_page.py` or `scripts/workers.sh restart` (which re-exports automatically).
+
+Workers run detached (survive terminal close). Logs: `.run/logs/`. macOS LaunchAgents: `scripts/workers.sh install`.
+
+### 6. Application tracking
+
+Statuses in the `applications` table: `draft` → `sent` → `replied` → `toured` → `accepted` / `rejected`, plus `skipped`.
+
+| Action | Apply queue | CLI | Telegram |
+|--------|-------------|-----|----------|
+| Mark sent | Mark sent button | `python sync.py --url <url>` | `/sent <url>` |
+| Skip | Skip button | — | — |
+| Landlord replied | — | `python mail_monitor.py` | `/mail` |
+| Pipeline view | Status filters | `python sync.py --status` | `/apps` |
+
+Gmail inbox monitoring (`mail_monitor.py`) matches Craigslist relay replies to sent applications and can bump status to `replied`.
 
 ## Setup
 
 ```bash
 cd 2607-lookingforroom
 python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
+playwright install chromium   # for Facebook scout only
+
+cp .env.example .env          # add API keys as needed
 ```
 
-Copy `.env.example` to `.env` and add API keys as needed:
+Edit `profile.yaml` with your name, move-in window, budget, and message template.
+
+### Facebook Marketplace
 
 ```bash
-cp .env.example .env
+python scout_facebook.py login    # one-time browser login
+python scout_facebook.py poll     # poll searches
 ```
 
-## Alerts
+Session is stored in `facebook_state.json` (gitignored). Re-login if polls fail.
 
-Get notified when new high-score listings appear (score ≥ 80). Duplicate alerts for the same listing are suppressed via `last_alerted_ids.json`.
+### Run the pipeline
 
-### Interactive Telegram bot (recommended)
+```bash
+python run.py                     # full: scout + facebook + filter + rank
+python run.py --scout-only
+python run.py --filter-only
+python run.py --top 10            # print top 10 after run
+```
 
-Start the bot, then open [@Rae_house_bot](https://t.me/Rae_house_bot) and tap **Start** once (saves your `chat_id` to `telegram_chat.json` for alerts):
+Suggested cron (every 6 hours): see `POLL_INTERVAL_HOURS` in `config.py`.
+
+### Deploy the apply queue (optional)
+
+Push the static site to Cloudflare Pages:
+
+```bash
+scripts/deploy-pages.sh
+```
+
+The UI works read-only on Pages. **Mark sent / Skip** need the local API (or a tunneled `APPLY_API_PUBLIC_URL` in `.env`).
+
+## Telegram bot (optional)
+
+For phone-based alerts and drafts:
 
 ```bash
 python bot.py
 ```
 
-Commands: `/top` `/apply` `/send` `/apps` `/mail` `/gmail` `/tram` `/caltrain` `/run` `/status` `/help`
+Open [@Rae_house_bot](https://t.me/Rae_house_bot) and tap **Start** once. Set `TELEGRAM_BOT_TOKEN` in `.env`.
 
-- `/start` — register chat + show top 3 listings
-- `/run` — full scout → filter → rank refresh (~3 min)
-- `/apply` — copy-paste Craigslist draft for next listing to apply to
-- `/send` — Gmail SMTP send **only if** listing text has a direct email (rare)
-- `/sentall` — mark all drafts as sent after batch apply
-- `/sent 3` or `/sent <url>` — mark one listing as sent
-- `/applied` — mark last draft as sent (alias)
-- `/replied` — mark last sent as replied when landlord responds
-- `/mail` — scan Gmail inbox for landlord replies (auto-matches to sent applications)
-- `/mail loop` — instructions for background polling every 5 minutes
-- `/gmail status` — OAuth vs App Password vs not configured
-- `/gmail auth` — one-time OAuth setup instructions
-- `/apps` — pipeline dashboard + recent statuses
-- `/prep` — five tour questions before a viewing
-- `/tram` / `/caltrain` — transit-filtered top 5
+Useful commands: `/run` `/apply` `/sent` `/apps` `/mail` `/tram` `/help`
 
-Set `TELEGRAM_BOT_TOKEN` in `.env`. `TELEGRAM_CHAT_ID` is optional if you use `/start` on the bot (otherwise set it manually — see `notify.py`).
-
-### One-shot pipeline alerts
+One-shot alerts after a pipeline run:
 
 ```bash
-# Telegram (default) — without tokens, prints a dry-run preview (IDs not marked)
 python run.py --alert
-
-# Slack instead
-python run.py --alert --alert-channel slack
-
-# Rank + alert only
-python run.py --rank-only --alert
 ```
 
-**Slack:** create an [Incoming Webhook](https://api.slack.com/messaging/webhooks) for your channel and set `SLACK_WEBHOOK_URL` in `.env`.
+## Gmail
 
-## Usage
-
-**Full pipeline** (scout → score → rank → outreach):
+OAuth is recommended for inbox monitoring and optional Gmail drafts:
 
 ```bash
-python run.py
-```
-
-**Individual stages:**
-
-```bash
-python run.py --scout-only
-python run.py --filter-only   # scores listings (Gemini + heuristic fallback)
-python run.py --rank-only
-python run.py --outreach-only
-```
-
-Show more/fewer top listings:
-
-```bash
-python run.py --top 10
-```
-
-## How to apply
-
-Honest workflow — the bot finds and scores listings, but **most Craigslist replies still need you in a browser**.
-
-1. **Bot finds + scores listings** — `python run.py` or `/run` in Telegram refreshes the pipeline.
-2. **`/apply` gives a copy-paste message** — personalized from `profile.yaml` + listing flags (move-in hold ask, room size, utilities).
-3. **You open the URL, use Craigslist email relay, paste the message** — Craigslist hides landlord emails; the Reply form needs a browser + `SERVICE_ID` token.
-4. **`/sent` or `/applied` tracks it** — marks drafts as `sent` in the `applications` table.
-5. **`/prep` before a tour** — five questions (utilities, house rules, move-in hold, room size, roommates).
-6. **Follow-ups** — `mail_monitor` can detect landlord replies in Gmail; you still reply in the email thread yourself.
-
-### Craigslist reality (read this)
-
-| Expectation | Reality |
-|-------------|---------|
-| GCP / Gemini API key sends Gmail | **No** — API keys score listings only; they cannot send mail |
-| Craigslist exposes landlord email | **No** — contact is via relay; listing HTML rarely has a direct `to` address |
-| Gmail OAuth2 | **Yes** (recommended) — `python oauth_setup.py` once; `mail_monitor` + `send_mail` use Gmail API |
-| App Password + SMTP/IMAP | **Yes** (fallback) — same `GMAIL_*` creds: (1) read inbox, (2) **send** when you know the recipient |
-| `/send` on a Craigslist URL | Works **only** if description contains an extractable email (uncommon); otherwise use `/apply` + manual Reply |
-| Auto-submit Craigslist Reply | **Not built** — would need Playwright/browser automation (TODO) |
-
-When `/send` or `send_mail.py --listing-url` finds no email, open the listing link and paste your `/apply` draft into Craigslist Reply.
-
-## Gmail OAuth2 setup (recommended)
-
-OAuth avoids App Passwords and uses the Gmail API for inbox monitoring and sending.
-
-### GCP setup (project `267981036962`)
-
-1. **Enable Gmail API** — [Google Cloud Console](https://console.cloud.google.com/apis/library/gmail.googleapis.com?project=267981036962) → Enable.
-2. **OAuth consent screen** — configure app name, support email, scopes (`gmail.readonly`, `gmail.send`). If External/testing, add your Gmail as a test user.
-3. **Credentials** — APIs & Services → Credentials → **Create credentials** → OAuth 2.0 Client ID → **Desktop app**.
-4. Copy **Client ID** and **Client secret** from the credentials page.
-
-### Local setup
-
-Add to `.env` (Client ID is already in `.env.example`; you must paste the **Client secret** yourself):
-
-```
-GMAIL_OAUTH_CLIENT_ID=267981036962-gj06904enh79gdv4mj3fbvi8gitkis35.apps.googleusercontent.com
-GMAIL_OAUTH_CLIENT_SECRET=...   # from GCP Console → Credentials
-GMAIL_ADDRESS=dalrae.jin.work@gmail.com
-```
-
-Run the one-time consent flow (opens browser):
-
-```bash
-python oauth_setup.py
-# headless / SSH: python oauth_setup.py --headless
-```
-
-This saves `gmail_token.json` (gitignored). Verify:
-
-```bash
+python oauth_setup.py             # one-time consent
 python -c "import gmail_auth; print(gmail_auth.auth_status())"
 ```
 
-**Telegram:** `/gmail status` · `/gmail auth`
+Set `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, and `GMAIL_ADDRESS` in `.env`. App Password (`GMAIL_APP_PASSWORD`) works as a fallback.
 
-**Fallback:** If OAuth is not set up, App Password (`GMAIL_APP_PASSWORD`) still works for IMAP + SMTP.
-
-## Outbound email (Gmail API or SMTP)
-
-Send inquiries when you have a **known recipient address** (landlord posted email in listing, Facebook lead, etc.).
-
-**Setup:** OAuth (above) or App Password — see [Mailbox monitoring](#mailbox-monitoring).
-
-**Subject / body** come from `profile.yaml`:
-- `email_subject` (default: `"Room Rental Inquiry by Aug 18"`)
-- `message_template` (+ listing-specific paragraphs via `apply.build_draft`)
-
-```bash
-# Preview without password or SMTP
-python send_mail.py --dry-run --to landlord@example.com
-
-# Direct send (no listing tracking)
-python send_mail.py --to landlord@example.com
-
-# Craigslist listing — sends only if description has a direct email
-python send_mail.py --listing-url https://sfbay.craigslist.org/...
-python send_mail.py --top 3          # 3rd ranked listing
-python send_mail.py --dry-run --top 3
-```
-
-After a successful send tied to a listing, the app is marked `sent` with `channel='email'`.
-
-**Telegram:** `/send` (next unapplied) or `/send 3` (ranked #3).
-
-## Mailbox monitoring
-
-Automatically detect landlord replies in Gmail, match them to sent Craigslist applications, update status to `replied`, and alert via Telegram.
-
-### Setup (you must provide credentials)
-
-**Option A — OAuth2 (recommended):** see [Gmail OAuth2 setup](#gmail-oauth2-setup-recommended) above.
-
-**Option B — App Password (fallback):** Gmail IMAP requires a **Google App Password** — your regular Gmail password will not work.
-
-1. **Enable 2-Step Verification** on your Google account:  
-   https://myaccount.google.com/security
-
-2. **Create an App Password** (choose Mail → Other device name):  
-   https://myaccount.google.com/apppasswords  
-   Google shows a 16-character password (e.g. `abcd efgh ijkl mnop`).
-
-3. **Add to `.env`** (copy from `.env.example`):
-   ```
-   GMAIL_ADDRESS=dalrae.jin.work@gmail.com
-   GMAIL_APP_PASSWORD=xxxx xxxx xxxx xxxx
-   ```
-   Use the address you use for Craigslist email relay replies.
-
-4. **Test** (dry-run if credentials missing):
-   ```bash
-   python mail_monitor.py --dry-run
-   python mail_monitor.py              # one inbox check
-   ```
-
-### How it works
-
-- **OAuth:** Gmail API `users.messages.list` + `get` on INBOX (last **14 days**).
-- **Fallback:** `imap.gmail.com:993` (SSL) and scans INBOX emails from the **last 14 days**.
-- Filters for likely landlord replies:
-  - **From** contains `craigslist.org`, `reply.craigslist`, or `hous.craigslist`
-  - **Or** subject/body mentions room, rental, listing, apartment, available, viewing
-- **Matches** to your `sent` applications by:
-  1. Craigslist post ID in email URLs/body (best)
-  2. Fuzzy match of email subject to listing title
-- **On match:** `sent` → `replied` in DB, Telegram alert with subject + snippet + listing link
-- **Dedup:** processed `Message-ID`s stored in SQLite `mail_messages` table (no double-alerts)
-
-### Ongoing monitoring
-
-| Action | CLI | Telegram |
-|--------|-----|----------|
-| One inbox check | `python mail_monitor.py` | `/mail` |
-| Poll every 5 min | `python mail_monitor.py --loop 300` | `/mail loop` (shows command) |
-| Preview without updates | `python mail_monitor.py --dry-run` | — |
-
-**Suggested cron** (every 5 minutes):
-
-```cron
-*/5 * * * * cd /path/to/2607-lookingforroom && .venv/bin/python mail_monitor.py >> logs/mail.log 2>&1
-```
-
-Keep marking applications `/sent` after you contact landlords — the monitor only matches against `sent` rows.
-
-## Tracking applications
-
-After you send Craigslist messages, sync the database so rankings and `/apply` skip listings you've already contacted.
-
-**One-time catch-up** (e.g. after `batch_apply.html`):
-
-```bash
-python sync.py --catch-up    # mark all drafts as sent
-python sync.py --status      # pipeline dashboard
-```
-
-**Ongoing tracking:**
-
-| Action | CLI | Telegram |
-|--------|-----|----------|
-| Sent one listing | `python sync.py --url <url>` | `/sent <url>` or `/sent 3` (rank) |
-| Sent batch of top N | `python sync.py --top 19` | `/sentall` (all drafts) |
-| Landlord replied | `python mail_monitor.py` (auto) | `/mail` or `/replied` (manual) |
-| View pipeline | `python sync.py --status` | `/apps` |
-
-`/apps` shows: **sent · replied · toured · rejected · awaiting fresh** (unapplied ranked listings).
-
-Statuses: `draft` → `sent` → `replied` → `toured` → `accepted` / `rejected`. Each sent row stores `channel` (default `craigslist`) and `sent_at`.
-
-CLI equivalent:
-
-```bash
-python apply.py              # draft for next unapplied top listing
-python apply.py --top 3      # draft for 3rd ranked listing
-python apply.py <url_or_id>  # draft for a specific listing
-```
-
-Edit `profile.yaml` once with your name, move-in window, budget, and about-you bullets.
-
-## Daily workflow
-
-1. **Morning & evening** — run `python run.py` (or set a cron job every 6 hours; see `POLL_INTERVAL_HOURS` in `config.py`).
-2. **Review top 5** — printed at the end of each run; use `/apply` or `python apply.py` for drafts.
-3. **Send manually on Craigslist** — copy draft, paste into email relay, then `/applied`.
-4. **Facebook Marketplace** — included in `python run.py` when logged in (see below). Groups are still manual.
-
-### Suggested cron (every 6 hours)
-
-```cron
-0 */6 * * * cd /path/to/2607-lookingforroom && .venv/bin/python run.py >> logs/run.log 2>&1
-```
-
-## Facebook Marketplace (automated)
-
-Marketplace listings are polled with Playwright after a one-time browser login on your Mac.
-
-```bash
-# One-time login (opens Chromium — log in, then press Enter)
-python scout_facebook.py login
-
-# Poll SF + Oakland searches (also runs filter + rank)
-python scout_facebook.py poll
-
-# Import a single listing URL
-python scout_facebook.py ingest "https://www.facebook.com/marketplace/item/1234567890"
-
-# Full pipeline (Craigslist + Facebook + filter + rank)
-python run.py
-
-# Draft for a pasted Marketplace URL (ingests, scores, drafts)
-python apply.py "https://www.facebook.com/marketplace/item/1234567890"
-```
-
-After sending a message on Marketplace, mark it: `/sent facebook` or `python sync.py --url <fb-url>` (channel auto-detects as Facebook).
-
-Session file: `facebook_state.json` (gitignored). Re-run `login` if polls start failing.
-
-## Manual Facebook group tips
-
-Craigslist and Marketplace are automated; **groups** are still manual but often have better leads.
-
-**Groups to join (search FB for exact names):**
-
-- *San Francisco Housing, Rooms, Apartments, Sublets*
-- *SF Bay Area Rooms and Apartments*
-- *San Francisco Roommates*
-- *Queer Housing SF* (if relevant)
-- Neighborhood-specific: *Mission District Housing*, *Castro SF Housing*
-
-**Daily FB routine (~15 min):**
-
-1. Sort each group feed by **Recent posts**.
-2. Filter mentally: own bedroom or small shared house, ≤$1,300, SF/Oakland, Aug move-in.
-3. Save promising posts to a spreadsheet or Notes with link + contact.
-4. Message within **2 hours** of posting — good rooms go fast.
-5. Use the outreach template from `outreach.py`; mention your move-in dates upfront.
-
-**Red flags:** wire transfers before viewing, no photos, price too good to be true, "room for couple" when you need solo.
+**Craigslist reality:** listings rarely expose a direct email. Most outreach is copy-paste into Craigslist Reply or the apply queue's Gmail compose link. `/send` and `send_mail.py` only work when an address appears in the post text.
 
 ## Project layout
 
 ```
-profile.yaml   # Your applicant profile (name, move-in, budget)
-config.py      # Search criteria, URLs, env
-run.py         # CLI orchestrator
-scout.py       # Craigslist fetcher
-scout_facebook.py  # Facebook Marketplace fetcher (Playwright)
-facebook_session.py  # Saved FB login state
-filter.py      # Gemini/heuristic scoring
-rank.py        # Top-15 digest output
-apply.py       # Application drafts + tour prep
-outreach.py    # Batch drafts for top 3 (uses apply.py)
-db.py          # SQLite storage (listings, scores, applications)
-sync.py        # CLI catch-up for sent/replied tracking
-notify.py      # Telegram / Slack alerts
-bot.py         # Interactive Telegram bot (long polling)
-gmail_auth.py    # Shared Gmail OAuth2 helpers
-oauth_setup.py   # One-time OAuth consent CLI
-mail_monitor.py  # Gmail API / IMAP monitor for landlord replies
-send_mail.py     # Gmail API / SMTP outbound (when direct TO address known)
-gmail_token.json # OAuth token (generated; gitignored)
-listings.db    # Generated at runtime
-telegram_chat.json  # Saved on /start (chat_id for alerts)
-last_alerted_ids.json  # Tracks alerted listing IDs
+profile.yaml          Applicant profile and message template
+config.py             Search criteria, URLs, location zones
+run.py                CLI pipeline orchestrator
+bot.py                Telegram bot
+
+scout.py              Craigslist fetcher
+scout_facebook.py     Facebook Marketplace (Playwright)
+filter.py             Listing tags and Gemini scoring
+rank.py               Top-15 digest
+match.py              Hard filter for apply-queue "matches criteria"
+apply.py              Draft builder
+outreach.py           Batch drafts for top listings
+
+db.py                 SQLite — listings, scores, applications
+sync.py               CLI status updates
+queue_export.py       Builds site/data.json
+listings_page.py      Export CLI
+api.py                Local apply API (sent / skip / like / draft)
+
+locations.py          Address parsing and location zones
+listing_move_in.py    Move-in date parsing
+listing_dates.py      Posted-date parsing
+listing_description.py  Description extraction
+listing_size.py       Sqft extraction
+listing_poster.py     Poster name extraction
+
+site/                 Apply queue static UI
+  index.html          Main table
+  app.js              Filters, sort, pagination, apply actions
+  data.json           Generated listing export
+  map.html            Map view
+
+scripts/
+  workers.sh          Start/stop detached UI + API
+  deploy-pages.sh     Cloudflare Pages deploy
+  backfill-fb-details.sh  Facebook description backfill
+
+listings.db           Runtime database (gitignored)
+digest.md             Generated ranked digest
 ```
+
+## Daily workflow
+
+1. **Refresh listings** — `python run.py` (or cron / `/run` in Telegram).
+2. **Re-export queue** — `scripts/workers.sh restart` or `python listings_page.py`.
+3. **Work the queue** — http://127.0.0.1:8765/ — filter to "To apply", sort by score, apply to promising rows.
+4. **Mark sent** after each outreach so you don't double-contact.
+5. **Check mail** — `python mail_monitor.py` or `/mail` for landlord replies.
+6. **Facebook groups** — still manual; Marketplace is automated.
+
+## Configuration reference
+
+- **Search URLs** — `config.py` → `SEARCH_URLS`, `FACEBOOK_SEARCHES`
+- **Location allow/exclude** — `config.py` → `LOCATION_ALLOWED`, `LOCATION_EXCLUDE`
+- **Transit preferences** — `config.py` → `TRANSIT_PREFERENCES`
+- **Export limits** — `DETAIL_BACKFILL_LIMIT`, `POSTED_BACKFILL_LIMIT` env vars in `queue_export.py`
+- **API auth** — optional `APPLY_API_TOKEN` bearer token for `api.py`
 
 ## Search strategy
 
-1. **Cast a wide net** — Craigslist `private_room=1` + max price in URL.
-2. **Filter hard** — exclude shared-bedroom/SRO/couple listings in `filter.py`; shared kitchen/bath in a small house is OK.
-3. **Rank by value** — lower rent + preferred neighborhoods (Mission, Castro, Noe, Bernal, etc.) score higher. Transit tiers in `config.py` → `TRANSIT_PREFERENCES`: Muni Metro/tram (+25), Caltrain (+22, station-adjacent homes OK even in outer SF), BART (+15), Muni bus only (+5). `/caltrain` in the bot shows Caltrain-adjacent matches.
-4. **Act fast** — run twice daily; reply same day with a short, friendly note and specific move-in dates.
-5. **Supplement with FB** — many landlords post only on Facebook.
-6. **View in person** — never send deposit without seeing the room and meeting roommates.
+1. **Cast a wide net** — Craigslist `private_room=1` + max price in URL; multiple Facebook search feeds.
+2. **Filter hard** — location zones, move-in window, room type, scams, stale posts (>1 week).
+3. **Rank by value** — lower rent + preferred neighborhoods + transit bonuses.
+4. **Act fast** — good rooms go within hours; the queue sorts by score and posted date.
+5. **View in person** — never send a deposit without seeing the room and meeting roommates.
