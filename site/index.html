@@ -7,55 +7,69 @@
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <div class="shell">
-    <header>
-      <h1>Apply queue</h1>
-      <p class="sub">One message for every listing. <strong>Apply</strong> saves a Gmail draft (when API is on) or opens compose.</p>
-      <p class="stats" id="stats">Loading…</p>
-    </header>
+  <h1>Apply queue</h1>
+  <p class="hint">Sort by clicking column headers. <strong>Apply</strong> saves a Gmail draft when the Mac API is on.
+    After you send, use <strong>Mark sent</strong> — then track replies on
+    <a href="/listing-mails-communication.html">listing mail communication</a>.</p>
+  <p class="hint" id="api-hint">Checking API…</p>
 
-    <div class="toolbar">
-      <div class="tabs">
-        <button class="tab active" data-tab="to_apply">To apply</button>
-        <button class="tab" data-tab="applied">Applied</button>
-        <button class="tab" data-tab="replied">Replied</button>
-        <button class="tab" data-tab="skipped">Skipped</button>
-      </div>
-      <span class="api-pill offline" id="api-pill">Checking API…</span>
-    </div>
+  <div class="stats" id="stats">
+    <span class="stat">To apply <strong id="stat-to-apply">…</strong></span>
+    <span class="stat">Applied <strong id="stat-applied">…</strong></span>
+    <span class="stat">Replied <strong id="stat-replied">…</strong></span>
+    <span class="stat">Skipped <strong id="stat-skipped">…</strong></span>
+  </div>
+  <p class="hint" id="generated-hint">Loading…</p>
 
-    <div class="filter-bar">
-      <input class="filter-input" type="search" id="search" placeholder="Search title, city, or address" autocomplete="off">
-      <select class="filter-select" id="source-filter" aria-label="Source">
-        <option value="all">All sources</option>
+  <div class="toolbar">
+    <label>Search
+      <input type="search" id="filter-search" placeholder="Title, city, address…" autocomplete="off">
+    </label>
+    <label>Status
+      <select id="filter-status">
+        <option value="to_apply">To apply</option>
+        <option value="applied">Applied</option>
+        <option value="replied">Replied</option>
+        <option value="skipped">Skipped</option>
+      </select>
+    </label>
+    <label>Source
+      <select id="filter-source">
+        <option value="all">All</option>
         <option value="craigslist">Craigslist</option>
         <option value="facebook">Facebook</option>
       </select>
-      <input class="filter-input filter-price" type="number" id="max-price" placeholder="Max $/mo" min="0" step="50" aria-label="Max price per month">
-      <label class="filter-check">
-        <input type="checkbox" id="move-in-only">
-        Move-in window
-      </label>
-      <select class="filter-select" id="sort" aria-label="Sort by">
-        <option value="score-desc">Score (high first)</option>
-        <option value="price-asc">Price (low first)</option>
-        <option value="price-desc">Price (high first)</option>
-        <option value="neighborhood-asc">Neighborhood A–Z</option>
-        <option value="title-asc">Title A–Z</option>
-        <option value="source-asc">Source</option>
-        <option value="posted-desc">Posted (newest)</option>
-        <option value="scraped-desc">Scraped (newest)</option>
-      </select>
-    </div>
+    </label>
+    <label>Max $/mo
+      <input type="number" id="filter-price" placeholder="Any" min="0" step="50">
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="filter-move-in"> Move-in window only
+    </label>
+    <span class="row-count" id="row-count"></span>
+  </div>
 
-    <details class="message-box">
-      <summary>Message template</summary>
-      <pre id="message-pre"></pre>
-    </details>
-
-    <section class="list" id="list">
-      <p class="empty">Loading listings…</p>
-    </section>
+  <div class="table-wrap">
+    <table id="queue-table">
+      <thead>
+        <tr>
+          <th data-sort="index" class="sorted-desc">#</th>
+          <th data-sort="title">Title</th>
+          <th data-sort="price">$/mo</th>
+          <th data-sort="neighborhood">Area</th>
+          <th data-sort="address">Address</th>
+          <th data-sort="posted">Posted</th>
+          <th data-sort="scraped">Scraped</th>
+          <th data-sort="score">Score</th>
+          <th data-sort="status">Status</th>
+          <th data-sort="source">Source</th>
+          <th class="no-sort">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="queue-body">
+        <tr><td colspan="11" class="hint">Loading listings…</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <div class="toast" id="toast"></div>

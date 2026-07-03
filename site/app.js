@@ -5,30 +5,42 @@ const state = {
   source: "all",
   maxPrice: "",
   moveInOnly: false,
-  sort: "score-desc",
+  sortKey: "score",
+  sortDir: -1,
   apiOnline: false,
 };
 
 const els = {
-  list: document.getElementById("list"),
-  stats: document.getElementById("stats"),
-  apiPill: document.getElementById("api-pill"),
-  messagePre: document.getElementById("message-pre"),
+  tbody: document.getElementById("queue-body"),
+  table: document.getElementById("queue-table"),
   toast: document.getElementById("toast"),
-  search: document.getElementById("search"),
-  sourceFilter: document.getElementById("source-filter"),
-  maxPrice: document.getElementById("max-price"),
-  moveInOnly: document.getElementById("move-in-only"),
-  sort: document.getElementById("sort"),
+  search: document.getElementById("filter-search"),
+  status: document.getElementById("filter-status"),
+  source: document.getElementById("filter-source"),
+  maxPrice: document.getElementById("filter-price"),
+  moveInOnly: document.getElementById("filter-move-in"),
+  rowCount: document.getElementById("row-count"),
+  apiHint: document.getElementById("api-hint"),
+  generatedHint: document.getElementById("generated-hint"),
+  statToApply: document.getElementById("stat-to-apply"),
+  statApplied: document.getElementById("stat-applied"),
+  statReplied: document.getElementById("stat-replied"),
+  statSkipped: document.getElementById("stat-skipped"),
 };
 
 function toast(text, isError = false) {
   els.toast.textContent = text;
   els.toast.className = `toast show${isError ? " error" : ""}`;
   clearTimeout(toast._t);
-  toast._t = setTimeout(() => {
-    els.toast.className = "toast";
-  }, 4200);
+  toast._t = setTimeout(() => { els.toast.className = "toast"; }, 4200);
+}
+
+function esc(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 async function copyText(text) {
@@ -64,156 +76,212 @@ async function checkApi() {
   }
 }
 
-function compareText(a, b) {
-  return String(a ?? "").localeCompare(String(b ?? ""), undefined, { sensitivity: "base" });
-}
-
-function compareNumber(a, b, dir = 1) {
-  const left = Number(a);
-  const right = Number(b);
-  const safeLeft = Number.isFinite(left) ? left : dir > 0 ? Infinity : -Infinity;
-  const safeRight = Number.isFinite(right) ? right : dir > 0 ? Infinity : -Infinity;
-  if (safeLeft === safeRight) return 0;
-  return safeLeft < safeRight ? -dir : dir;
-}
-
 function parseTime(value) {
   if (!value) return null;
   const ms = Date.parse(value);
   return Number.isFinite(ms) ? ms : null;
 }
 
-function sortListings(items) {
-  const sorted = [...items];
-  sorted.sort((a, b) => {
-    switch (state.sort) {
-      case "price-asc":
-        return compareNumber(a.price, b.price, 1) || compareText(a.title, b.title);
-      case "price-desc":
-        return compareNumber(a.price, b.price, -1) || compareText(a.title, b.title);
-      case "neighborhood-asc":
-        return compareText(a.neighborhood, b.neighborhood) || compareText(a.title, b.title);
-      case "title-asc":
-        return compareText(a.title, b.title);
-      case "source-asc":
-        return compareText(a.source, b.source) || compareText(a.title, b.title);
-      case "posted-desc":
-        return compareNumber(parseTime(b.postedAt), parseTime(a.postedAt), 1) || compareText(a.title, b.title);
-      case "scraped-desc":
-        return compareNumber(parseTime(b.scrapedAt), parseTime(a.scrapedAt), 1) || compareText(a.title, b.title);
-      case "score-desc":
-      default:
-        return compareNumber(b.score, a.score, 1) || compareNumber(a.price, b.price, 1);
-    }
-  });
-  return sorted;
+function statusMeta(item) {
+  switch (item.queueStatus) {
+    case "to_apply":
+      return { label: "To apply", css: "apply" };
+    case "applied":
+      return { label: "Sent — awaiting reply", css: "sent" };
+    case "replied":
+      return { label: "Replied", css: "replied" };
+    case "skipped":
+      return { label: "Skipped", css: "skipped" };
+    default:
+      return { label: item.appStatus || "Other", css: "skipped" };
+  }
 }
 
-function filteredListings() {
-  const items = state.data?.listings || [];
-  const query = state.search.trim().toLowerCase();
+function sourceLabel(item) {
+  if (item.isFacebook) return "📘 Facebook";
+  return "Craigslist";
+}
+
+function searchBlob(item) {
+  return [
+    item.title,
+    item.neighborhood,
+    item.rentalAddress,
+    item.city,
+    item.state,
+    item.zip,
+    item.transitTag,
+    item.moveInTag,
+    sourceLabel(item),
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function passesFilters(item) {
+  if (item.queueStatus !== state.tab) return false;
+  if (state.moveInOnly && !item.isMatch) return false;
+  if (state.source === "facebook" && !item.isFacebook) return false;
+  if (state.source === "craigslist" && item.isFacebook) return false;
   const maxPrice = state.maxPrice === "" ? null : Number(state.maxPrice);
+  if (maxPrice !== null && Number.isFinite(maxPrice)) {
+    const price = Number(item.price);
+    if (!Number.isFinite(price) || price > maxPrice) return false;
+  }
+  const q = state.search.trim().toLowerCase();
+  if (q && !searchBlob(item).includes(q)) return false;
+  return true;
+}
 
-  const filtered = items.filter((item) => {
-    if (item.queueStatus !== state.tab) return false;
-    if (state.moveInOnly && !item.isMatch) return false;
-    if (state.source === "facebook" && !item.isFacebook) return false;
-    if (state.source === "craigslist" && item.isFacebook) return false;
-    if (maxPrice !== null && Number.isFinite(maxPrice)) {
-      const price = Number(item.price);
-      if (!Number.isFinite(price) || price > maxPrice) return false;
-    }
-    if (query) {
-      const haystack = [
-        item.title,
-        item.neighborhood,
-        item.rentalAddress,
-        item.city,
-        item.state,
-        item.zip,
-      ].filter(Boolean).join(" ").toLowerCase();
-      if (!haystack.includes(query)) return false;
-    }
-    return true;
+function sortValue(item, key) {
+  switch (key) {
+    case "price":
+      return Number.isFinite(Number(item.price)) ? Number(item.price) : 99999;
+    case "score":
+      return Number.isFinite(Number(item.score)) ? Number(item.score) : -1;
+    case "posted":
+      return parseTime(item.postedAt) ?? 0;
+    case "scraped":
+      return parseTime(item.scrapedAt) ?? 0;
+    case "neighborhood":
+      return (item.neighborhood || "").toLowerCase();
+    case "address":
+      return (item.rentalAddress || "").toLowerCase();
+    case "title":
+      return (item.title || "").toLowerCase();
+    case "status":
+      return item.queueStatus || "";
+    case "source":
+      return item.source || "";
+    default:
+      return 0;
+  }
+}
+
+function sortedFilteredItems() {
+  const items = (state.data?.listings || []).filter(passesFilters);
+  items.sort((a, b) => {
+    const av = sortValue(a, state.sortKey);
+    const bv = sortValue(b, state.sortKey);
+    if (av < bv) return -1 * state.sortDir;
+    if (av > bv) return 1 * state.sortDir;
+    return (a.title || "").localeCompare(b.title || "");
   });
-
-  return sortListings(filtered);
+  return items;
 }
 
-function statusLabel(item) {
-  if (item.queueStatus === "to_apply") return ["To apply", "status-todo"];
-  if (item.queueStatus === "applied") return ["Awaiting reply", "status-wait"];
-  if (item.queueStatus === "replied") return ["Replied", "status-done"];
-  if (item.queueStatus === "skipped") return ["Skipped", "status-skip"];
-  return [item.appStatus || "Other", "status-done"];
+function subLines(item) {
+  const parts = [];
+  if (item.isMatch) parts.push('<span class="tag-inline">Move-in OK</span>');
+  if (item.transitTag) parts.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
+  if (item.moveInTag) parts.push(`<span class="tag-inline">${esc(item.moveInTag)}</span>`);
+  return parts.length ? `<div class="cell-sub">${parts.join("")}</div>` : "";
 }
 
-function timeLabel(value, fallback = "Unknown") {
-  return value || fallback;
-}
+function renderRow(item, index) {
+  const st = statusMeta(item);
+  const price = item.price ? `$${item.price}` : "—";
+  const address = item.rentalAddress || "—";
+  const posted = item.postedLabel || "—";
+  const scraped = item.scrapedLabel || "—";
+  const score = Number.isFinite(Number(item.score)) ? String(item.score) : "—";
+  const rowClass = item.isMatch ? "data-row match-row" : "data-row";
+  const search = esc(searchBlob(item));
 
-function renderCard(item, index) {
-  const [label, labelClass] = statusLabel(item);
-  const price = item.price ? `$${item.price}/mo` : "N/A";
-  const badge = item.isFacebook ? " 📘" : "";
-  const addressLine = item.rentalAddress
-    ? `<p class="address">${esc(item.rentalAddress)}</p>`
-    : "";
-  const tags = [];
-  if (item.isMatch) tags.push('<span class="tag match">Move-in OK</span>');
-  if (item.transitTag) tags.push(`<span class="tag transit">${esc(item.transitTag)}</span>`);
-  if (item.moveInTag) tags.push(`<span class="tag">${esc(item.moveInTag)}</span>`);
+  const actionBtns = [
+    `<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`,
+    `<a class="link-btn" href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">Listing</a>`,
+    `<button type="button" class="link-btn toggle-detail" data-index="${index}">Message</button>`,
+  ];
+  if (item.queueStatus === "to_apply") {
+    actionBtns.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
+    actionBtns.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
+  }
+
+  const detailRow = `
+    <tr class="detail-row" data-detail-for="${index}" hidden>
+      <td colspan="11">
+        <details class="message-box" open>
+          <summary>Apply message</summary>
+          <textarea rows="8" readonly>${esc(item.message || "")}</textarea>
+        </details>
+      </td>
+    </tr>`;
 
   return `
-    <article class="card" data-id="${esc(item.id)}">
-      <div class="card-top">
-        <span class="rank">${index}</span>
-        <div style="flex:1">
-          <h2>${esc(item.title)}${badge}</h2>
-          <p class="meta">${esc(price)} · ${esc(item.neighborhood)}</p>
-          ${addressLine}
-          <p class="timestamps">Posted ${esc(timeLabel(item.postedLabel))} · Scraped ${esc(timeLabel(item.scrapedLabel))}</p>
-          <div class="tags">${tags.join("")}</div>
-        </div>
-        <span class="status ${labelClass}">${label}</span>
-      </div>
-      <div class="actions">
-        <button class="btn btn-primary apply-btn" data-id="${esc(item.id)}">Apply</button>
-        <a class="btn btn-secondary" href="${esc(item.url)}" target="_blank" rel="noopener">Open</a>
-        ${item.queueStatus === "to_apply" ? `<button class="btn btn-secondary sent-btn" data-id="${esc(item.id)}">Mark sent</button>` : ""}
-        ${item.queueStatus === "to_apply" ? `<button class="btn btn-secondary skip-btn" data-id="${esc(item.id)}">Skip</button>` : ""}
-      </div>
-    </article>`;
+    <tr class="${rowClass}"
+        data-index="${index}"
+        data-id="${esc(item.id)}"
+        data-search="${search}"
+        data-status="${esc(item.queueStatus)}"
+        data-source="${esc(item.isFacebook ? "facebook" : "craigslist")}"
+        data-neighborhood="${esc((item.neighborhood || "").toLowerCase())}"
+        data-address="${esc((item.rentalAddress || "").toLowerCase())}"
+        data-price="${sortValue(item, "price")}"
+        data-score="${sortValue(item, "score")}"
+        data-posted="${sortValue(item, "posted")}"
+        data-scraped="${sortValue(item, "scraped")}"
+        data-title="${esc((item.title || "").toLowerCase())}">
+      <td class="num">${index}</td>
+      <td class="title-cell">
+        <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a>
+        ${subLines(item)}
+      </td>
+      <td class="num">${esc(price)}</td>
+      <td>${esc(item.neighborhood || "—")}</td>
+      <td>${esc(address)}</td>
+      <td>${esc(posted)}</td>
+      <td>${esc(scraped)}</td>
+      <td class="num">${esc(score)}</td>
+      <td><span class="badge badge-${st.css}">${esc(st.label)}</span></td>
+      <td><span class="badge badge-channel">${esc(sourceLabel(item))}</span></td>
+      <td class="links-cell">${actionBtns.join("")}</td>
+    </tr>
+    ${detailRow}`;
 }
 
-function esc(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function dataRows() {
+  return Array.from(els.tbody.querySelectorAll("tr.data-row"));
+}
+
+function detailFor(index) {
+  return els.tbody.querySelector(`tr.detail-row[data-detail-for="${index}"]`);
+}
+
+function updateSortHeaders() {
+  els.table.querySelectorAll("thead th[data-sort]").forEach((th) => {
+    th.classList.remove("sorted-asc", "sorted-desc");
+    if (th.dataset.sort === state.sortKey) {
+      th.classList.add(state.sortDir === 1 ? "sorted-asc" : "sorted-desc");
+    }
+  });
 }
 
 function render() {
-  const items = filteredListings();
-  els.list.innerHTML = items.length
-    ? items.map((item, i) => renderCard(item, i + 1)).join("")
-    : '<p class="empty">Nothing here. Try another tab or loosen your filters.</p>';
+  const items = sortedFilteredItems();
+  els.tbody.innerHTML = items.length
+    ? items.map((item, i) => renderRow(item, i + 1)).join("")
+    : '<tr><td colspan="11" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
 
   const c = state.data?.counts || {};
-  els.stats.textContent = `${c.toApply ?? 0} to apply · ${c.applied ?? 0} awaiting · ${c.replied ?? 0} replied · ${c.skipped ?? 0} skipped · ${items.length} shown`;
+  els.statToApply.textContent = String(c.toApply ?? 0);
+  els.statApplied.textContent = String(c.applied ?? 0);
+  els.statReplied.textContent = String(c.replied ?? 0);
+  els.statSkipped.textContent = String(c.skipped ?? 0);
+  els.rowCount.textContent = `${items.length} shown`;
+  els.generatedHint.textContent = state.data?.generatedAt
+    ? `Generated ${state.data.generatedAt}. Refresh: python listings_page.py`
+    : "";
+  els.apiHint.textContent = state.apiOnline
+    ? "API online on your Mac — Apply creates real Gmail drafts."
+    : "API offline — Apply opens Gmail compose or copies Facebook message.";
 
-  els.apiPill.textContent = state.apiOnline
-    ? "API online — real Gmail drafts"
-    : "API offline — compose fallback";
-  els.apiPill.className = `api-pill${state.apiOnline ? "" : " offline"}`;
+  updateSortHeaders();
 }
 
 async function fallbackApply(item) {
   if (item.isFacebook) {
     const copied = await copyText(item.message);
     window.open(item.url, "_blank", "noopener,noreferrer");
-    toast(copied ? "Message copied — paste in Facebook Messenger" : "Open listing and paste your message");
+    toast(copied ? "Message copied — paste in Messenger" : "Open listing and paste your message");
     return;
   }
   window.open(item.gmailComposeUrl, "_blank", "noopener,noreferrer");
@@ -272,7 +340,10 @@ async function markSkipped(id) {
     if (item) {
       item.queueStatus = "skipped";
       item.appStatus = "skipped";
-      item.skippedLabel = "just now";
+    }
+    if (state.data?.counts) {
+      state.data.counts.toApply = Math.max(0, (state.data.counts.toApply || 0) - 1);
+      state.data.counts.skipped = (state.data.counts.skipped || 0) + 1;
     }
     render();
     toast("Skipped");
@@ -296,6 +367,10 @@ async function markSent(id) {
       item.queueStatus = "applied";
       item.appStatus = "sent";
     }
+    if (state.data?.counts) {
+      state.data.counts.toApply = Math.max(0, (state.data.counts.toApply || 0) - 1);
+      state.data.counts.applied = (state.data.counts.applied || 0) + 1;
+    }
     render();
     toast("Marked as sent");
   } catch (err) {
@@ -304,37 +379,42 @@ async function markSent(id) {
 }
 
 function bindControls() {
-  document.querySelectorAll(".tab").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      state.tab = btn.dataset.tab;
-      render();
-    });
-  });
+  const rerender = () => render();
 
   els.search.addEventListener("input", () => {
     state.search = els.search.value;
-    render();
+    rerender();
   });
-  els.sourceFilter.addEventListener("change", () => {
-    state.source = els.sourceFilter.value;
-    render();
+  els.status.addEventListener("change", () => {
+    state.tab = els.status.value;
+    rerender();
+  });
+  els.source.addEventListener("change", () => {
+    state.source = els.source.value;
+    rerender();
   });
   els.maxPrice.addEventListener("input", () => {
     state.maxPrice = els.maxPrice.value;
-    render();
+    rerender();
   });
   els.moveInOnly.addEventListener("change", () => {
     state.moveInOnly = els.moveInOnly.checked;
-    render();
-  });
-  els.sort.addEventListener("change", () => {
-    state.sort = els.sort.value;
-    render();
+    rerender();
   });
 
-  els.list.addEventListener("click", (event) => {
+  els.table.querySelectorAll("thead th[data-sort]").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (state.sortKey === key) state.sortDir *= -1;
+      else {
+        state.sortKey = key;
+        state.sortDir = key === "title" || key === "neighborhood" || key === "address" ? 1 : -1;
+      }
+      rerender();
+    });
+  });
+
+  els.tbody.addEventListener("click", (event) => {
     const applyBtn = event.target.closest(".apply-btn");
     if (applyBtn) {
       applyListing(applyBtn.dataset.id);
@@ -346,19 +426,26 @@ function bindControls() {
       return;
     }
     const skipBtn = event.target.closest(".skip-btn");
-    if (skipBtn) markSkipped(skipBtn.dataset.id);
+    if (skipBtn) {
+      markSkipped(skipBtn.dataset.id);
+      return;
+    }
+    const toggleBtn = event.target.closest(".toggle-detail");
+    if (toggleBtn) {
+      const detail = detailFor(toggleBtn.dataset.index);
+      if (detail) detail.hidden = !detail.hidden;
+    }
   });
 }
 
 async function init() {
   const res = await fetch("./data.json?ts=" + Date.now());
   state.data = await res.json();
-  els.messagePre.textContent = state.data.messageTemplate || "";
   await checkApi();
   bindControls();
   render();
 }
 
 init().catch((err) => {
-  els.list.innerHTML = `<p class="empty">Failed to load queue: ${esc(err.message)}</p>`;
+  els.tbody.innerHTML = `<tr><td colspan="11" class="hint">Failed to load queue: ${esc(err.message)}</td></tr>`;
 });
