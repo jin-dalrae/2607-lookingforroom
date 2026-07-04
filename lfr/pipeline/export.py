@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
@@ -172,6 +173,83 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     }
 
 
+def _normalize_title_words(title: str) -> set[str]:
+    cleaned = re.sub(r"[^\w\s]", " ", title.lower())
+    words = {w for w in cleaned.split() if len(w) > 3}
+    exclude = {"room", "rent", "private", "bedroom", "apartment", "house", "for rent", "available", "shared"}
+    return words - exclude
+
+
+def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Group similar listings together under the same house group (using Union-Find)."""
+    parent = {item["id"]: item["id"] for item in listings}
+
+    def find(i):
+        path = []
+        while parent[i] != i:
+            path.append(i)
+            i = parent[i]
+        for node in path:
+            parent[node] = i
+        return i
+
+    def union(i, j):
+        root_i = find(i)
+        root_j = find(j)
+        if root_i != root_j:
+            parent[root_i] = root_j
+
+    n = len(listings)
+    for i in range(n):
+        item_i = listings[i]
+        addr_i = (item_i.get("rentalAddress") or "").strip().lower()
+        title_i = (item_i.get("title") or "").strip()
+        price_i = item_i.get("price")
+        hood_i = (item_i.get("neighborhood") or "").strip().lower()
+        words_i = _normalize_title_words(title_i)
+
+        for j in range(i + 1, n):
+            item_j = listings[j]
+            addr_j = (item_j.get("rentalAddress") or "").strip().lower()
+            title_j = (item_j.get("title") or "").strip()
+            price_j = item_j.get("price")
+            hood_j = (item_j.get("neighborhood") or "").strip().lower()
+
+            is_match = False
+
+            if addr_i and addr_j and addr_i == addr_j and len(addr_i) > 15:
+                is_match = True
+            elif price_i == price_j and price_i is not None and hood_i == hood_j and hood_i:
+                words_j = _normalize_title_words(title_j)
+                shared = words_i & words_j
+                if len(shared) >= 3 or (words_i and words_j and len(shared) / max(len(words_i), len(words_j)) >= 0.5):
+                    is_match = True
+            elif price_i == price_j and price_i is not None and title_i.lower() == title_j.lower() and len(title_i) > 10:
+                is_match = True
+
+            if is_match:
+                union(item_i["id"], item_j["id"])
+
+    group_map: dict[str, list[dict[str, Any]]] = {}
+    for item in listings:
+        root_id = find(item["id"])
+        item["groupId"] = root_id
+        group_map.setdefault(root_id, []).append(item)
+
+    for root_id, members in group_map.items():
+        max_score = max((item.get("score") or 0) for item in members)
+        min_price = min((item.get("price") or 99999) for item in members)
+        is_grouped = len(members) > 1
+
+        for item in members:
+            item["groupMaxScore"] = max_score
+            item["groupMinPrice"] = min_price
+            item["isGrouped"] = is_grouped
+            item["duplicateCount"] = len(members) - 1
+
+    return listings
+
+
 def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
     init_db()
     profile = load_profile()
@@ -179,6 +257,7 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
 
     rows = get_queue_export_listings(pool_limit=export_limit)
     listings = [_serialize_listing(row, profile) for row in rows]
+    listings = group_similar_listings(listings)
     counts = {
         "toApply": sum(1 for item in listings if item["queueStatus"] == "to_apply"),
         "applied": sum(1 for item in listings if item["queueStatus"] == "applied"),

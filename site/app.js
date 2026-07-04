@@ -554,6 +554,34 @@ function sortValue(item, key) {
 function sortedFilteredItems() {
   const items = (state.data?.listings || []).filter(passesFilters);
   items.sort((a, b) => {
+    if (state.sortKey === "score") {
+      const ags = a.groupMaxScore ?? (a.score ?? 0);
+      const bgs = b.groupMaxScore ?? (b.score ?? 0);
+      if (ags !== bgs) return (ags < bgs ? -1 : 1) * state.sortDir;
+
+      if (a.groupId && b.groupId && a.groupId !== b.groupId) {
+        return a.groupId.localeCompare(b.groupId);
+      }
+
+      const as = a.score ?? 0;
+      const bs = b.score ?? 0;
+      if (as !== bs) return (as < bs ? -1 : 1) * state.sortDir;
+    }
+
+    if (state.sortKey === "price") {
+      const agp = a.groupMinPrice ?? (a.price ?? 99999);
+      const bgp = b.groupMinPrice ?? (b.price ?? 99999);
+      if (agp !== bgp) return (agp < bgp ? -1 : 1) * state.sortDir;
+
+      if (a.groupId && b.groupId && a.groupId !== b.groupId) {
+        return a.groupId.localeCompare(b.groupId);
+      }
+
+      const ap = a.price ?? 99999;
+      const bp = b.price ?? 99999;
+      if (ap !== bp) return (ap < bp ? -1 : 1) * state.sortDir;
+    }
+
     const av = sortValue(a, state.sortKey);
     const bv = sortValue(b, state.sortKey);
     if (av < bv) return -1 * state.sortDir;
@@ -640,6 +668,9 @@ function subLines(item) {
   const tags = [];
   if (item.posterName) tags.push(`<span class="tag-inline tag-poster">${esc(item.posterName)}</span>`);
   if (item.transitTag) tags.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
+  if (item.isGrouped) {
+    tags.push(`<span class="tag-inline" style="background:#f3e8ff; color:var(--purple); padding:0.1rem 0.35rem; border-radius:4px; font-weight:700;">🏠 Same House (${item.duplicateCount} other${item.duplicateCount > 1 ? "s" : ""})</span>`);
+  }
   
   const tagsHtml = tags.length ? `<div class="cell-sub">${tags.join("")}</div>` : "";
   
