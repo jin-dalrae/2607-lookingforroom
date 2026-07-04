@@ -161,15 +161,17 @@ function queueStatusFromApp(appStatus) {
   return "other";
 }
 
-function applyApplicationStatus(id, appStatus) {
+function applyApplicationStatus(id, appStatus, isLocalAction = false) {
   const item = (state.data?.listings || []).find((row) => row.id === id);
   if (!item) return false;
   item.appStatus = appStatus;
   item.queueStatus = queueStatusFromApp(appStatus);
-  const nowStr = new Date().toISOString();
-  item.appUpdatedAt = nowStr;
-  if (appStatus === "sent") {
-    item.appSentAt = nowStr;
+  if (isLocalAction) {
+    const nowStr = new Date().toISOString();
+    item.appUpdatedAt = nowStr;
+    if (appStatus === "sent") {
+      item.appSentAt = nowStr;
+    }
   }
   return true;
 }
@@ -916,7 +918,7 @@ async function markGone(id, { label = "Gone" } = {}) {
     const local = loadLocalDeletes();
     local.add(id);
     saveLocalDeletes(local);
-    applyApplicationStatus(id, "rejected");
+    applyApplicationStatus(id, "rejected", true);
     setCachedStatus(id, "rejected");
     recalculateCounts();
     render();
@@ -936,7 +938,7 @@ async function markGone(id, { label = "Gone" } = {}) {
     local.delete(id);
     saveLocalDeletes(local);
     const status = json.status || "rejected";
-    applyApplicationStatus(id, status);
+    applyApplicationStatus(id, status, true);
     setCachedStatus(id, status);
     recalculateCounts();
     render();
@@ -959,7 +961,7 @@ async function markScam(id) {
     const local = loadLocalDeletes();
     local.add(id);
     saveLocalDeletes(local);
-    applyApplicationStatus(id, "rejected");
+    applyApplicationStatus(id, "rejected", true);
     setCachedStatus(id, "rejected");
     recalculateCounts();
     render();
@@ -975,7 +977,7 @@ async function markScam(id) {
     local.delete(id);
     saveLocalDeletes(local);
     const status = json.status || "rejected";
-    applyApplicationStatus(id, status);
+    applyApplicationStatus(id, status, true);
     setCachedStatus(id, status);
     recalculateCounts();
     render();
@@ -1061,7 +1063,7 @@ async function markVisited(id) {
 
   const base = apiBase();
   if (!base || !state.apiOnline) {
-    applyApplicationStatus(id, "toured");
+    applyApplicationStatus(id, "toured", true);
     setCachedStatus(id, "toured");
     recalculateCounts();
     render();
@@ -1075,7 +1077,7 @@ async function markVisited(id) {
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     
     const status = json.status || "toured";
-    applyApplicationStatus(id, status);
+    applyApplicationStatus(id, status, true);
     setCachedStatus(id, status);
     recalculateCounts();
     render();
@@ -1118,7 +1120,7 @@ async function markSkipped(id) {
     local.delete(id);
     saveLocalSkips(local);
     const status = json.status || "skipped";
-    applyApplicationStatus(id, status);
+    applyApplicationStatus(id, status, true);
     setCachedStatus(id, status);
     recalculateCounts();
     render();
@@ -1131,7 +1133,7 @@ async function markSkipped(id) {
 async function markReplied(id) {
   const base = apiBase();
   if (!base || !state.apiOnline || !state.apiHasReplied) {
-    applyApplicationStatus(id, "replied");
+    applyApplicationStatus(id, "replied", true);
     setCachedStatus(id, "replied");
     recalculateCounts();
     render();
@@ -1147,7 +1149,7 @@ async function markReplied(id) {
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     const status = json.status || "replied";
-    applyApplicationStatus(id, status);
+    applyApplicationStatus(id, status, true);
     setCachedStatus(id, status);
     recalculateCounts();
     render();
@@ -1161,7 +1163,7 @@ async function markSent(id) {
   const base = apiBase();
 
   if (!base || !state.apiOnline) {
-    applyApplicationStatus(id, "sent");
+    applyApplicationStatus(id, "sent", true);
     setCachedStatus(id, "sent");
     recalculateCounts();
     render();
@@ -1174,7 +1176,7 @@ async function markSent(id) {
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || "Failed");
     const status = json.status || "sent";
-    applyApplicationStatus(id, status);
+    applyApplicationStatus(id, status, true);
     setCachedStatus(id, status);
     recalculateCounts();
     render();
