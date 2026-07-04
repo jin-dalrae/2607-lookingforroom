@@ -448,7 +448,7 @@ def is_san_francisco_location(
         return True
     if _url_in_allowed_market(url, "san_francisco"):
         if not mentions_any_place(primary, _OAKLAND_ONLY_TERMS):
-            if not mentions_any_place(primary, LOCATION_ALLOWED["emeryville"]["terms"]):
+            if not mentions_any_place(primary, ("emeryville",)):
                 if not is_south_san_francisco_city(primary=primary, city=city):
                     return True
     if full and has_sf_primary_signal(full):
@@ -462,7 +462,7 @@ def is_emeryville_location(
     rental_location: str = "",
     city: str = "",
 ) -> bool:
-    terms = LOCATION_ALLOWED["emeryville"]["terms"]
+    terms = ("emeryville",)
     city_low = (city or "").strip().lower()
     if city_low == "emeryville":
         return True

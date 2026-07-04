@@ -60,15 +60,14 @@ SEARCH_CRITERIA = {
     "current_location": "SOMA",
     "location": [
         "San Francisco (whole city)",
-        "Emeryville",
         "West Oakland",
         "Downtown Oakland",
         "South San Francisco",
     ],
     "location_note": (
-        "Only these areas: all of San Francisco, Emeryville, West Oakland, Downtown "
+        "Only these areas: all of San Francisco, West Oakland, Downtown "
         "Oakland, South San Francisco. Strongly prefer SF with Muni Metro/tram within "
-        "~10 min walk. Reject other East Bay (Berkeley, Temescal, Lake Merritt, "
+        "~10 min walk. Reject other East Bay (Berkeley, Emeryville, Temescal, Lake Merritt, "
         "Hayward, etc.), Daly City, male-only households, and listings over a week old."
     ),
     "transit_priority": (
@@ -89,7 +88,6 @@ SEARCH_CRITERIA = {
         "Castro",
         "West Oakland",
         "Downtown Oakland",
-        "Emeryville",
         "South San Francisco",
     ],
     "neighborhoods_penalize": [
@@ -193,7 +191,6 @@ FACEBOOK_MARKETPLACE_SEARCHES = (
     ("Inner Mission room", _fb_sf("inner mission room")),
     ("West Oakland room", _fb_oak("west oakland room")),
     ("Downtown Oakland room", _fb_oak("downtown oakland room")),
-    ("Emeryville room", _fb_oak("emeryville room")),
     ("South SF room", _fb_sf("south san francisco room")),
 )
 
@@ -247,10 +244,6 @@ LOCATION_ALLOWED = {
         ),
         "url_markers": ("/san-francisco-", "sfc/", "search/sfc", "marketplace/sanfrancisco"),
     },
-    "emeryville": {
-        "label": "Emeryville",
-        "terms": ("emeryville",),
-    },
     "west_oakland": {
         "label": "West Oakland",
         "terms": ("west oakland",),
@@ -268,6 +261,7 @@ LOCATION_ALLOWED = {
 # --- Hard location exclusions (supplement whitelist) ---
 LOCATION_EXCLUDE = {
     "terms": (
+        "emeryville",
         "berkeley",
         "albany",
         "el cerrito",
