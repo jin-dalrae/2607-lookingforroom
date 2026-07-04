@@ -32,6 +32,13 @@ from gmail_draft import create_gmail_draft, format_result
 DEFAULT_PORT = 8787
 ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
+import threading
+
+_scrape_lock = threading.Lock()
+_is_scraping = False
+_last_scrape_status = "idle"  # "idle", "running", "success", "failed"
+_last_scrape_error = None
+
 
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -99,6 +106,8 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                         "like",
                         "delete",
                         "statuses",
+                        "scrape",
+                        "scrape/status",
                     ],
                 },
             )
@@ -109,6 +118,9 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                 200,
                 {"ok": True, "statuses": get_application_status_map()},
             )
+            return
+        if path == "/api/scrape/status":
+            self._handle_scrape_status()
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
 
@@ -149,7 +161,57 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             listing_id = delete_match.group(1)
             self._handle_delete(listing_id)
             return
+        if path == "/api/scrape":
+            self._handle_scrape()
+            return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
+
+    def _handle_scrape_status(self) -> None:
+        global _is_scraping, _last_scrape_status, _last_scrape_error
+        _json_response(
+            self,
+            200,
+            {
+                "ok": True,
+                "is_scraping": _is_scraping,
+                "status": _last_scrape_status,
+                "error": _last_scrape_error,
+            },
+        )
+
+    def _handle_scrape(self) -> None:
+        global _is_scraping, _last_scrape_status, _last_scrape_error
+        with _scrape_lock:
+            if _is_scraping:
+                _json_response(self, 400, {"ok": False, "error": "Scrape already in progress"})
+                return
+            _is_scraping = True
+            _last_scrape_status = "running"
+            _last_scrape_error = None
+
+        def worker() -> None:
+            global _is_scraping, _last_scrape_status, _last_scrape_error
+            try:
+                from run import run_pipeline
+                from queue_export import write_queue_data
+
+                print("[api] Background scrape started…")
+                run_pipeline()
+                write_queue_data()
+                print("[api] Background scrape finished and queue exported successfully!")
+                _last_scrape_status = "success"
+            except Exception as exc:
+                print(f"[api] Background scrape error: {exc}", file=sys.stderr)
+                _last_scrape_status = "failed"
+                _last_scrape_error = str(exc)
+            finally:
+                _is_scraping = False
+
+        t = threading.Thread(target=worker, name="ScrapeWorker")
+        t.daemon = True
+        t.start()
+
+        _json_response(self, 200, {"ok": True, "message": "Scrape started"})
 
     def _handle_draft(self, listing_id: str) -> None:
         if not ID_RE.match(listing_id):

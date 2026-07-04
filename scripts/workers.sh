@@ -69,6 +69,9 @@ stop_port() {
 
 export_queue() {
   echo "Exporting queue data..."
+  DETAIL_BACKFILL_LIMIT="${DETAIL_BACKFILL_LIMIT:-0}" \
+  FB_TITLE_BACKFILL_LIMIT="${FB_TITLE_BACKFILL_LIMIT:-0}" \
+  POSTED_BACKFILL_LIMIT="${POSTED_BACKFILL_LIMIT:-0}" \
   "$PYTHON" listings_page.py
 }
 

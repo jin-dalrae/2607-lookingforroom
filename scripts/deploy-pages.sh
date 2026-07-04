@@ -6,11 +6,17 @@ cd "$ROOT"
 
 PROJECT_NAME="${PAGES_PROJECT_NAME:-2607-lookingforroom}"
 
-echo "Exporting apply queue..."
-python listings_page.py
+PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
+if [[ ! -x "$PYTHON" ]]; then
+  PYTHON="$(command -v python3)"
+fi
 
-echo "Generating communication page..."
-python communication_page.py
+export DETAIL_BACKFILL_LIMIT="${DETAIL_BACKFILL_LIMIT:-0}"
+export FB_TITLE_BACKFILL_LIMIT="${FB_TITLE_BACKFILL_LIMIT:-0}"
+export POSTED_BACKFILL_LIMIT="${POSTED_BACKFILL_LIMIT:-0}"
+
+echo "Exporting apply queue..."
+"$PYTHON" listings_page.py
 
 echo "Deploying to Cloudflare Pages ($PROJECT_NAME)..."
 npx wrangler pages deploy site \

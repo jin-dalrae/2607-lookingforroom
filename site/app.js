@@ -84,10 +84,7 @@ async function copyText(text) {
 function apiBase() {
   const fromData = (state.data?.apiUrl || "").trim();
   if (fromData) return fromData.replace(/\/$/, "");
-  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
-    return "http://localhost:8787";
-  }
-  return "";
+  return "http://127.0.0.1:8787";
 }
 
 async function checkApi() {
@@ -781,6 +778,11 @@ function render() {
     els.apiHint.classList.toggle("warn", Boolean(apiMessage));
   }
 
+  const scrapeBtn = document.getElementById("scrape-btn");
+  const scrapeSep = document.getElementById("scrape-sep");
+  if (scrapeBtn) scrapeBtn.style.display = state.apiOnline ? "inline-block" : "none";
+  if (scrapeSep) scrapeSep.hidden = !state.apiOnline;
+
   updateSortHeaders();
   highlightLastClickedRow();
 }
@@ -1086,6 +1088,101 @@ function bindControls() {
   });
 }
 
+let scrapingPollInterval = null;
+
+async function checkScrapingStatus() {
+  const base = apiBase();
+  if (!base || !state.apiOnline) return;
+  try {
+    const res = await fetch(`${base}/api/scrape/status`);
+    const json = await res.json();
+    if (json.ok) {
+      updateScrapeUI(json.is_scraping, json.status, json.error);
+    }
+  } catch (err) {
+    console.error("Failed to check scraping status:", err);
+  }
+}
+
+function updateScrapeUI(isScraping, status, error) {
+  const btn = document.getElementById("scrape-btn");
+  const statusEl = document.getElementById("scrape-status");
+  const sep = document.getElementById("scrape-sep");
+  if (!btn || !statusEl) return;
+
+  if (isScraping) {
+    btn.disabled = true;
+    btn.textContent = "Scraping...";
+    statusEl.textContent = "Scraping... this can take a minute.";
+    statusEl.style.display = "inline-block";
+    statusEl.style.color = "var(--orange)";
+
+    if (!scrapingPollInterval) {
+      scrapingPollInterval = setInterval(checkScrapingStatus, 2000);
+    }
+  } else {
+    btn.disabled = false;
+    btn.textContent = "Run Scrape";
+    
+    if (status === "success") {
+      statusEl.textContent = "Scrape complete! Reloading...";
+      statusEl.style.display = "inline-block";
+      statusEl.style.color = "var(--green)";
+      
+      if (scrapingPollInterval) {
+        clearInterval(scrapingPollInterval);
+        scrapingPollInterval = null;
+      }
+      
+      setTimeout(async () => {
+        try {
+          const dataRes = await fetch("./data.json?ts=" + Date.now());
+          state.data = await dataRes.json();
+          mergeLocalLikes();
+          applyLocalDeletes();
+          mergeLocalSkips();
+          await syncApplicationStatuses();
+          render();
+          statusEl.style.display = "none";
+          toast("Scrape successful and listings updated!");
+        } catch (e) {
+          toast("Failed to reload after scrape: " + e.message, true);
+        }
+      }, 1500);
+    } else if (status === "failed") {
+      statusEl.textContent = "Scrape failed: " + (error || "Unknown error");
+      statusEl.style.display = "inline-block";
+      statusEl.style.color = "var(--red)";
+      
+      if (scrapingPollInterval) {
+        clearInterval(scrapingPollInterval);
+        scrapingPollInterval = null;
+      }
+    } else {
+      statusEl.style.display = "none";
+    }
+  }
+}
+
+async function triggerScrape() {
+  const base = apiBase();
+  if (!base || !state.apiOnline) return;
+  try {
+    const btn = document.getElementById("scrape-btn");
+    if (btn) btn.disabled = true;
+    
+    const res = await fetch(`${base}/api/scrape`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+    
+    toast("Scrape initiated!");
+    updateScrapeUI(true, "running", null);
+  } catch (err) {
+    toast("Failed to start scrape: " + err.message, true);
+    updateScrapeUI(false, "failed", err.message);
+  }
+}
+
 async function init() {
   state.lastClickedId = loadLastClickedId();
   const res = await fetch("./data.json?ts=" + Date.now());
@@ -1098,6 +1195,15 @@ async function init() {
   const synced = await syncApplicationStatuses();
   if (!synced) applyStatusCache();
   bindControls();
+
+  const scrapeBtn = document.getElementById("scrape-btn");
+  if (scrapeBtn) {
+    scrapeBtn.addEventListener("click", triggerScrape);
+    if (state.apiOnline) {
+      checkScrapingStatus();
+    }
+  }
+
   render();
   if (state.lastClickedId) {
     highlightLastClickedRow({ scroll: true });

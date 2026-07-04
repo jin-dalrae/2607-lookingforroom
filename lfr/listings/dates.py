@@ -493,27 +493,5 @@ def posted_label(
 
 
 def format_timestamp_label(iso_value: str | None) -> str:
-    if not iso_value:
-        return "Unknown"
-    try:
-        dt = datetime.fromisoformat(str(iso_value).replace("Z", "+00:00"))
-    except ValueError:
-        return str(iso_value)[:16]
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=timezone.utc)
-    local = dt.astimezone()
-    now = _utcnow().astimezone(local.tzinfo)
-    delta = now - local
-    days = delta.days
-    if days < 0:
-        return local.strftime("%b %-d")
-    if days == 0:
-        hours = int(delta.total_seconds() // 3600)
-        if hours <= 0:
-            return "today"
-        return f"{hours}h ago"
-    if days == 1:
-        return "yesterday"
-    if days < 7:
-        return f"{days}d ago"
-    return "over a week ago"
+    """Format exact local date + time for scraped timestamp."""
+    return format_exact_timestamp(iso_value)
