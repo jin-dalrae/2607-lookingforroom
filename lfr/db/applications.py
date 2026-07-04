@@ -221,7 +221,7 @@ def mark_application_skipped(
 def mark_application_rejected(
     listing_id: str,
     *,
-    notes: str | None = "deleted from queue",
+    notes: str | None = None,
 ) -> dict[str, Any] | None:
     """Permanently remove a listing from the apply pool."""
     init_db()
