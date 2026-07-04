@@ -497,6 +497,7 @@ function searchBlob(item) {
     item.moveInLabel,
     item.posterName,
     item.details,
+    item.groupId ? "group-" + item.groupId : "",
     sourceLabel(item),
   ].filter(Boolean).join(" ").toLowerCase();
 }
@@ -669,7 +670,7 @@ function subLines(item) {
   if (item.posterName) tags.push(`<span class="tag-inline tag-poster">${esc(item.posterName)}</span>`);
   if (item.transitTag) tags.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
   if (item.isGrouped) {
-    tags.push(`<span class="tag-inline" style="background:#f3e8ff; color:var(--purple); padding:0.1rem 0.35rem; border-radius:4px; font-weight:700;">🏠 Same House (${item.duplicateCount} other${item.duplicateCount > 1 ? "s" : ""})</span>`);
+    tags.push(`<span class="tag-inline same-house-btn" data-group-id="${esc(item.groupId)}" style="background:#f3e8ff; color:var(--purple); padding:0.1rem 0.35rem; border-radius:4px; font-weight:700; cursor:pointer;" title="Click to show all listings for this house">🏠 Same House (${item.duplicateCount} other${item.duplicateCount > 1 ? "s" : ""})</span>`);
   }
   
   const tagsHtml = tags.length ? `<div class="cell-sub">${tags.join("")}</div>` : "";
@@ -1331,6 +1332,16 @@ function bindControls() {
     const revertBtn = event.target.closest(".revert-btn");
     if (revertBtn) {
       revertListing(revertBtn.dataset.id);
+      return;
+    }
+    const sameHouseBtn = event.target.closest(".same-house-btn");
+    if (sameHouseBtn) {
+      const gId = sameHouseBtn.dataset.groupId;
+      state.search = "group-" + gId;
+      els.search.value = "group-" + gId;
+      state.page = 1;
+      render();
+      toast("Filtering by same house listings");
       return;
     }
   });
