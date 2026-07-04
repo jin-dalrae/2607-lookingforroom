@@ -112,6 +112,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                         "scam",
                         "revert",
                         "notes",
+                        "toured",
                     ],
                 },
             )
@@ -143,6 +144,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         scam_match = re.match(r"^/api/scam/([^/]+)$", path)
         revert_match = re.match(r"^/api/revert/([^/]+)$", path)
         notes_match = re.match(r"^/api/notes/([^/]+)$", path)
+        toured_match = re.match(r"^/api/toured/([^/]+)$", path)
 
         if draft_match:
             listing_id = draft_match.group(1)
@@ -180,10 +182,43 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             listing_id = notes_match.group(1)
             self._handle_notes(listing_id)
             return
+        if toured_match:
+            listing_id = toured_match.group(1)
+            self._handle_toured(listing_id)
+            return
         if path == "/api/scrape":
             self._handle_scrape()
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
+
+    def _handle_toured(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+
+        from lfr.db.connection import get_connection
+        now = _utcnow()
+        with get_connection() as conn:
+            conn.execute(
+                """
+                UPDATE applications
+                SET status = 'toured', updated_at = ?
+                WHERE listing_id = ?
+                """,
+                (now, listing["id"]),
+            )
+            conn.commit()
+
+        _json_response(
+            self,
+            200,
+            {"ok": True, "status": "toured"},
+        )
 
     def _handle_notes(self, listing_id: str) -> None:
         if not ID_RE.match(listing_id):

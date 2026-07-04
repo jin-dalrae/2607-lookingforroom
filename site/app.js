@@ -727,7 +727,7 @@ function renderRow(item, index) {
   const row1 = [];
   const row2 = [];
 
-  if (item.queueStatus !== "gone") {
+  if (item.queueStatus === "to_apply" || item.queueStatus === "skipped") {
     row1.push(`<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`);
   }
   if (item.queueStatus === "to_apply") {
@@ -747,6 +747,7 @@ function renderRow(item, index) {
     row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "replied") {
+    row1.push(`<button type="button" class="link-btn visited-btn" data-id="${esc(item.id)}">Visited</button>`);
     row2.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
     row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
@@ -1054,6 +1055,36 @@ async function saveListingMemo(id, text) {
   }
 }
 
+async function markVisited(id) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item) return;
+
+  const base = apiBase();
+  if (!base || !state.apiOnline) {
+    applyApplicationStatus(id, "toured");
+    setCachedStatus(id, "toured");
+    recalculateCounts();
+    render();
+    toast("Marked visited (saved in this browser)");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${base}/api/toured/${encodeURIComponent(id)}`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+    
+    const status = json.status || "toured";
+    applyApplicationStatus(id, status);
+    setCachedStatus(id, status);
+    recalculateCounts();
+    render();
+    toast("Marked as Visited");
+  } catch (err) {
+    toast(String(err.message || err), true);
+  }
+}
+
 async function markSkipped(id) {
   const base = apiBase();
 
@@ -1252,6 +1283,11 @@ function bindControls() {
     const repliedBtn = event.target.closest(".replied-btn");
     if (repliedBtn) {
       markReplied(repliedBtn.dataset.id);
+      return;
+    }
+    const visitedBtn = event.target.closest(".visited-btn");
+    if (visitedBtn) {
+      markVisited(visitedBtn.dataset.id);
       return;
     }
     const goneBtn = event.target.closest(".gone-btn");
