@@ -731,7 +731,7 @@ function renderRow(item, index) {
     row1.push(`<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`);
   }
   if (item.queueStatus === "to_apply") {
-    row1.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
+    row1.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Sent</button>`);
     row1.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
     row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
@@ -831,7 +831,7 @@ function render() {
     if (!state.apiOnline) {
       apiMessage = "Status buttons won't save — run api.py locally.";
     } else if (!state.apiHasSkip || !state.apiHasReplied) {
-      apiMessage = "Restart api.py so Mark sent / Replied / Gone sync.";
+      apiMessage = "Restart api.py so Sent / Replied / Gone sync.";
     }
     els.apiHint.textContent = apiMessage;
     els.apiHint.hidden = !apiMessage;
