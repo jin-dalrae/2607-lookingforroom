@@ -173,6 +173,32 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     }
 
 
+def _is_specific_street_address(address: str) -> bool:
+    if not address:
+        return False
+    low = address.lower().strip()
+    generic_cities = {
+        "san francisco",
+        "oakland",
+        "emeryville",
+        "south san francisco",
+        "ca",
+        "california",
+        "united states",
+        "usa",
+        "san francisco, ca",
+        "oakland, ca",
+        "emeryville, ca",
+        "south san francisco, ca",
+    }
+    if low in generic_cities:
+        return False
+    if not any(char.isdigit() for char in low):
+        if "and" not in low and "&" not in low:
+            return False
+    return True
+
+
 def _normalize_title_words(title: str) -> set[str]:
     cleaned = re.sub(r"[^\w\s]", " ", title.lower())
     words = {w for w in cleaned.split() if len(w) > 3}
@@ -180,8 +206,19 @@ def _normalize_title_words(title: str) -> set[str]:
     return words - exclude
 
 
+def _normalize_description_words(desc: str) -> set[str]:
+    if not desc:
+        return set()
+    cleaned = re.sub(r"[^\w\s]", " ", desc.lower())
+    words = {w for w in cleaned.split() if len(w) > 4}
+    exclude = {
+        "room", "rent", "private", "bedroom", "apartment", "house", "available", "shared",
+        "kitchen", "bathroom", "utilities", "included", "laundry", "closet"
+    }
+    return words - exclude
+
+
 def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Group similar listings together under the same house group (using Union-Find)."""
     parent = {item["id"]: item["id"] for item in listings}
 
     def find(i):
@@ -207,6 +244,8 @@ def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any
         price_i = item_i.get("price")
         hood_i = (item_i.get("neighborhood") or "").strip().lower()
         words_i = _normalize_title_words(title_i)
+        desc_i = (item_i.get("details") or "").strip()
+        words_desc_i = _normalize_description_words(desc_i)
 
         for j in range(i + 1, n):
             item_j = listings[j]
@@ -214,17 +253,23 @@ def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any
             title_j = (item_j.get("title") or "").strip()
             price_j = item_j.get("price")
             hood_j = (item_j.get("neighborhood") or "").strip().lower()
+            desc_j = (item_j.get("details") or "").strip()
 
             is_match = False
 
-            if addr_i and addr_j and addr_i == addr_j and len(addr_i) > 15:
+            if addr_i and addr_j and addr_i == addr_j and _is_specific_street_address(addr_i):
                 is_match = True
+            elif words_desc_i and len(desc_j) > 40:
+                words_desc_j = _normalize_description_words(desc_j)
+                shared_desc = words_desc_i & words_desc_j
+                if len(shared_desc) >= 12 or (len(shared_desc) / max(len(words_desc_i), len(words_desc_j)) >= 0.6):
+                    is_match = True
             elif price_i == price_j and price_i is not None and hood_i == hood_j and hood_i:
                 words_j = _normalize_title_words(title_j)
                 shared = words_i & words_j
-                if len(shared) >= 3 or (words_i and words_j and len(shared) / max(len(words_i), len(words_j)) >= 0.5):
+                if len(shared) >= 4 or (words_i and words_j and len(shared) / max(len(words_i), len(words_j)) >= 0.7):
                     is_match = True
-            elif price_i == price_j and price_i is not None and title_i.lower() == title_j.lower() and len(title_i) > 10:
+            elif price_i == price_j and price_i is not None and title_i.lower() == title_j.lower() and len(title_i) > 15:
                 is_match = True
 
             if is_match:
