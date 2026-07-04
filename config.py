@@ -19,35 +19,35 @@ SEARCH_CRITERIA = {
         "Only penalize explicit sqft under 100. 150+ sq ft is a nice-to-have boost, "
         "not a requirement. 'Small/tiny/cozy room' keywords are neutral."
     ),
-    "move_in_start": date(2026, 7, 20),
+    "move_in_start": date(2026, 8, 1),
     "move_in_end": date(2026, 8, 18),
     "move_in_hard_reject_after": date(2026, 8, 19),
     "move_in_flex_weeks": 0,
     "use_filter_not_score": True,
     "move_in_window": {
-        "target": "late July – Aug 18, 2026",
-        "start": "July 20 (late July)",
+        "target": "August 1 – Aug 18, 2026",
+        "start": "August 1",
         "end": "August 18",
         "accept_examples": [
-            "July 20",
-            "July 25",
-            "late July",
             "August 1",
+            "Aug 1",
             "Aug 10",
             "Aug 18",
+            "available in August",
         ],
         "reject_examples": [
+            "July",
+            "late July",
             "September 1",
             "after Aug 18",
             "available after August 19th",
-            "before July 20",
             "available now",
             "unknown date",
         ],
         "note": (
-            "Hard filter: move-in July 20 – Aug 18. Price up to $1300 OK; $800–$1000 preferred. "
+            "Hard filter: move-in August 1 – Aug 18. Price up to $1300 OK; $800–$1000 preferred. "
             "'Available after August 19th' and later are hard rejects. "
-            "Before late July, 'available now', and unknown dates excluded."
+            "July, 'available now', and unknown dates excluded."
         ),
     },
     "room_type": "private_bedroom_or_small_shared_house",
@@ -113,10 +113,24 @@ SEARCH_CRITERIA = {
 }
 
 # --- Data sources ---
-CRAIGSLIST_URL = (
+_CL_SFC_ROO = (
     "https://sfbay.craigslist.org/search/sfc/roo"
     "?max_price=1300&private_room=1&availabilityMode=0"
 )
+
+CRAIGSLIST_URL = _CL_SFC_ROO
+
+SOMA_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=soma+room"
+SOUTH_BEACH_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=south+beach+room"
+MISSION_BAY_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=mission+bay+room"
+DOGPATCH_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=dogpatch+room"
+POTRERO_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=potrero+hill+room"
+CIVIC_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=civic+center+room"
+FINANCIAL_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=financial+district+room"
+EMBARCADERO_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=embarcadero+room"
+HAYES_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=hayes+valley+room"
+INNER_MISSION_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=inner+mission+room"
+AUGUST_ROOM_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=august+room+available"
 
 WEST_OAKLAND_CRAIGSLIST_URL = (
     "https://sfbay.craigslist.org/search/eby/roo"
@@ -143,57 +157,44 @@ SOUTH_SF_CRAIGSLIST_URL = (
 )
 
 # --- Facebook Marketplace (requires: python scout_facebook.py login) ---
+_FB_SF_SEARCH = (
+    "https://www.facebook.com/marketplace/sanfrancisco/search/"
+    "?maxPrice=1300&exact=false&query="
+)
+_FB_OAK_SEARCH = (
+    "https://www.facebook.com/marketplace/oakland/search/"
+    "?maxPrice=1300&exact=false&query="
+)
+
+
+def _fb_sf(query: str) -> str:
+    from urllib.parse import quote
+
+    return f"{_FB_SF_SEARCH}{quote(query)}"
+
+
+def _fb_oak(query: str) -> str:
+    from urllib.parse import quote
+
+    return f"{_FB_OAK_SEARCH}{quote(query)}"
+
+
 FACEBOOK_MARKETPLACE_SEARCHES = (
-    (
-        "SF private room",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=private%20room&maxPrice=1300&exact=false",
-    ),
-    (
-        "SF room rent",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=room%20for%20rent&maxPrice=1300&exact=false",
-    ),
-    (
-        "SF room available",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=room%20available&maxPrice=1300&exact=false",
-    ),
-    (
-        "SF bedroom rent",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=bedroom%20for%20rent&maxPrice=1300&exact=false",
-    ),
-    (
-        "SF sublet",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=sublet%20room&maxPrice=1300&exact=false",
-    ),
-    (
-        "SF roommate",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=roommate%20wanted&maxPrice=1300&exact=false",
-    ),
-    (
-        "West Oakland room",
-        "https://www.facebook.com/marketplace/oakland/search/"
-        "?query=west%20oakland%20room&maxPrice=1300&exact=false",
-    ),
-    (
-        "Downtown Oakland room",
-        "https://www.facebook.com/marketplace/oakland/search/"
-        "?query=downtown%20oakland%20room&maxPrice=1300&exact=false",
-    ),
-    (
-        "Emeryville room",
-        "https://www.facebook.com/marketplace/oakland/search/"
-        "?query=emeryville%20room&maxPrice=1300&exact=false",
-    ),
-    (
-        "South SF room",
-        "https://www.facebook.com/marketplace/sanfrancisco/search/"
-        "?query=south%20san%20francisco%20room&maxPrice=1300&exact=false",
-    ),
+    ("SF private room", _fb_sf("private room")),
+    ("SF room rent", _fb_sf("room for rent")),
+    ("SF August room", _fb_sf("august room available")),
+    ("SOMA room", _fb_sf("soma room")),
+    ("South Beach room", _fb_sf("south beach room")),
+    ("Mission Bay room", _fb_sf("mission bay room")),
+    ("Potrero room", _fb_sf("potrero hill room")),
+    ("Civic Center room", _fb_sf("civic center room")),
+    ("Financial District room", _fb_sf("financial district room")),
+    ("Hayes Valley room", _fb_sf("hayes valley room")),
+    ("Inner Mission room", _fb_sf("inner mission room")),
+    ("West Oakland room", _fb_oak("west oakland room")),
+    ("Downtown Oakland room", _fb_oak("downtown oakland room")),
+    ("Emeryville room", _fb_oak("emeryville room")),
+    ("South SF room", _fb_sf("south san francisco room")),
 )
 
 # --- Polling ---

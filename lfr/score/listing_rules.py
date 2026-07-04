@@ -12,7 +12,10 @@ from lfr.score.criteria import (
     LARGE_SIZE_SIGNALS,
     MIN_ACCEPTABLE_SQFT,
     NICE_TO_HAVE_SQFT,
+    FURNITURE_GOODS_TERMS,
     OFFICE_SUBLEASE_TERMS,
+    _OFFICE_CONTEXT_RE,
+    _ROOM_FOR_RENT_RE,
     RENT_PERIOD_VALUES,
     ROOM_TYPE_VALUES,
     SHARED_BEDROOM_REJECT,
@@ -291,9 +294,32 @@ def _is_office_sublease(text: str, *, title: str = "") -> bool:
         return True
     if _OFFICE_SUBLEASE_TITLE_RE.search(tit):
         return True
+    if _OFFICE_CONTEXT_RE.search(blob):
+        return True
+    if "office" in tit and not _RESIDENTIAL_ROOM_RE.search(tit):
+        return True
     if "office space" in tit and not _RESIDENTIAL_ROOM_RE.search(tit):
         return True
     return False
+
+
+def _is_furniture_or_goods_listing(text: str, *, title: str = "") -> bool:
+    """Reject furniture and household goods posts mistaken for room rentals."""
+    tit = (title or "").strip().lower()
+    blob = f"{tit} {text}".lower()
+    if _ROOM_FOR_RENT_RE.search(blob):
+        return False
+    if _mentions_any(blob, FURNITURE_GOODS_TERMS):
+        return True
+    if re.search(r"\b(?:sofa|couch|rug|desk)\b", blob) and "room" not in blob:
+        return True
+    return False
+
+
+def _is_non_residential_listing(text: str, *, title: str = "") -> bool:
+    return _is_office_sublease(text, title=title) or _is_furniture_or_goods_listing(
+        text, title=title
+    )
 
 
 def _has_shared_bedroom_signal(text: str) -> bool:
@@ -336,6 +362,10 @@ def _has_sro_signal(text: str) -> bool:
 
 def _has_private_bedroom_signal(text: str) -> bool:
     if _has_shared_bedroom_signal(text):
+        return False
+    if _OFFICE_CONTEXT_RE.search(text):
+        return False
+    if "private office" in text or "professional office" in text:
         return False
     return any(
         phrase in text

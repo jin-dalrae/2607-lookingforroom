@@ -39,7 +39,7 @@ function popupHtml(item) {
       ${esc(price)} · ${esc(item.neighborhood || "—")}<br>
       Sqft: ${esc(sqft)} · Score: ${esc(item.scoreLabel ?? item.score ?? "—")}<br>
       ${item.liked ? "★ Liked<br>" : ""}
-      <a href="/">Open queue</a>
+      <a href="/">Back to list</a>
     </div>`;
 }
 

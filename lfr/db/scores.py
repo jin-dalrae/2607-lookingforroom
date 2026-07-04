@@ -159,7 +159,7 @@ def get_matching_listings(
     exclude_short_term: bool = True,
     exclude_unavailable: bool = True,
 ) -> list[dict[str, Any]]:
-    """Hard-filter: late Jul–Aug 18, $800–$1000, location rules; sort by price band fit."""
+    """Hard-filter: Aug 1–18, $800–$1000, location rules; sort by price band fit."""
     from lfr.pipeline.match import listing_matches_criteria, sort_matches
 
     init_db()
@@ -279,6 +279,8 @@ def get_pool_listings(
         if "location_reject" in room_flags:
             continue
         if "office_sublease_reject" in room_flags:
+            continue
+        if "furniture_goods_reject" in room_flags or "non_residential_reject" in room_flags:
             continue
         if "spanish_listing_reject" in room_flags:
             continue

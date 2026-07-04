@@ -99,10 +99,10 @@ def _move_in_display(flags_json: str | None) -> str | None:
     label = signal or "unspecified"
 
     suffixes = {
-        "ideal": "late Jul–Aug 18 ✓",
+        "ideal": "Aug 1–18 ✓",
         "maybe": "outside window",
         "risky": "excluded",
-        "too_early": "before late July",
+        "too_early": "before August",
         "too_late": "after Aug 18",
         "unknown": "excluded",
     }
@@ -278,7 +278,7 @@ def write_digest(rows: list[dict]) -> None:
     lines = [
         "# Room Search Digest\n",
         f"Top {len(rows)} **matches** (hard filters — no score ranking).\n",
-        "Move-in **late July 20 – Aug 18**. Rent up to **$1300** ($800–$1000 preferred). "
+        "Move-in **August 1 – Aug 18**. Rent up to **$1300** ($800–$1000 preferred). "
         "Excluded: Excelsior, Oakland east, scams, short-term, unknown dates, 'available now'. "
         "Sorted: sweet-spot band first, then price. Private bedroom or small shared house.\n",
         "---\n",
@@ -295,7 +295,7 @@ def print_rankings(rows: list[dict]) -> None:
         return
 
     print(f"\n{'=' * 60}")
-    print(f"MATCHES ({len(rows)}) — late Jul–Aug 18, ≤$1300, no Excelsior/Oakland east")
+    print(f"MATCHES ({len(rows)}) — Aug 1–18, ≤$1300, no Excelsior/Oakland east")
     print(f"{'=' * 60}\n")
 
     for i, row in enumerate(rows, 1):

@@ -245,7 +245,11 @@ def _facebook_incomplete_candidates(*, queue_only: bool) -> list[dict[str, Any]]
                     """
                 ).fetchall()
             ]
-    return [row for row in candidates if needs_facebook_detail_backfill(row)]
+    from lfr.listings.description import queue_display_details
+
+    needs = [row for row in candidates if needs_facebook_detail_backfill(row)]
+    needs.sort(key=lambda row: (0 if not queue_display_details(row)[0] else 1,))
+    return needs
 
 
 def backfill_facebook_junk_titles(*, limit: int = 5) -> dict[str, int]:

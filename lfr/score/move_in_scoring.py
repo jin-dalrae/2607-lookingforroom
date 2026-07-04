@@ -139,7 +139,7 @@ def _classify_move_in_date(
     signal_kind: str,
     signal_text: str = "",
 ) -> str:
-    """Classify move-in vs hard window late July 20 – Aug 18, 2026."""
+    """Classify move-in vs hard window August 1 – Aug 18, 2026."""
     if parsed_date is None:
         if signal_kind == "immediate":
             return "risky"
@@ -248,10 +248,10 @@ def _analyze_move_in(
 def _move_in_fit_note(move_in_fit: str, move_in_signal: str | None) -> str | None:
     signal = move_in_signal or "unspecified"
     notes = {
-        "ideal": f"move-in {signal} — late July–Aug 18 OK",
+        "ideal": f"move-in {signal} — Aug 1–18 OK",
         "maybe": f"move-in {signal} — outside window",
-        "risky": "available now — excluded (need late July–Aug 18)",
-        "too_early": f"move-in {signal} — before late July",
+        "risky": "available now — excluded (need Aug 1–18)",
+        "too_early": f"move-in {signal} — before August",
         "too_late": f"move-in {signal} — after Aug 18 / available after Aug 19+",
         "unknown": "move-in unknown — excluded",
     }

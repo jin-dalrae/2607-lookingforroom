@@ -3,14 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Apply queue</title>
+  <title>Rae's housing journey to Aug 16</title>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <h1>Apply queue</h1>
-  <p class="hint">Sort by clicking column headers · <a href="/map.html">Map view</a>. <strong>Apply</strong> opens Gmail compose or copies a Facebook message.
-    After you send, use <strong>Mark sent</strong>. On <strong>Applied</strong>, use <strong>Replied</strong> or <strong>Gone</strong> to track the outcome.</p>
-  <p class="hint" id="api-hint">Checking API…</p>
+  <h1>Rae's housing journey to Aug 16</h1>
+  <p class="intro">
+    <a href="/map.html">Map</a>
+    <span class="intro-sep">·</span>
+    <span class="intro-flow"><strong>Apply</strong> → <strong>Mark sent</strong> → <strong>Replied</strong> or <strong>Gone</strong></span>
+    <span class="intro-sep" id="updated-sep" hidden>·</span>
+    <span class="intro-updated" id="updated-hint" hidden></span>
+  </p>
+  <p class="hint system-hint" id="api-hint" hidden></p>
 
   <div class="stats" id="stats">
     <span class="stat">To apply <strong id="stat-to-apply">…</strong></span>
@@ -18,10 +23,8 @@
     <span class="stat">Replied <strong id="stat-replied">…</strong></span>
     <span class="stat">Skipped <strong id="stat-skipped">…</strong></span>
     <span class="stat">Gone <strong id="stat-gone">…</strong></span>
-    <span class="stat">Pending score <strong id="stat-pending-score">…</strong></span>
+    <span class="stat" id="stat-pending-score-wrap" hidden>Pending score <strong id="stat-pending-score">0</strong></span>
   </div>
-  <p class="hint" id="generated-hint">Loading…</p>
-
   <div class="toolbar">
     <label>Search
       <input type="search" id="filter-search" placeholder="Title, city, address…" autocomplete="off">
@@ -33,6 +36,7 @@
         <option value="replied">Replied</option>
         <option value="skipped">Skipped</option>
         <option value="gone">Gone</option>
+        <option value="all">All</option>
       </select>
     </label>
     <label>Source
@@ -80,6 +84,6 @@
   <nav class="pagination" id="pagination" aria-label="Listing pages"></nav>
 
   <div class="toast" id="toast"></div>
-  <script src="/app.js?v=7" defer></script>
+  <script src="/app.js?v=14" defer></script>
 </body>
 </html>

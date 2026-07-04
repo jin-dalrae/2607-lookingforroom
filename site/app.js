@@ -21,6 +21,7 @@ const PAGE_SIZE = 10;
 const LIKED_STORAGE_KEY = "queue-liked-ids";
 const SKIPPED_STORAGE_KEY = "queue-skipped-ids";
 const DELETED_STORAGE_KEY = "queue-deleted-ids";
+const STATUS_CACHE_KEY = "queue-status-cache";
 const LAST_CLICKED_KEY = "queue-last-clicked-id";
 const DETAILS_PREVIEW_WORDS = 5;
 const MOVE_IN_SORT_UNKNOWN = 999_999_999;
@@ -44,13 +45,15 @@ const els = {
   likedOnly: document.getElementById("filter-liked"),
   rowCount: document.getElementById("row-count"),
   apiHint: document.getElementById("api-hint"),
-  generatedHint: document.getElementById("generated-hint"),
+  updatedHint: document.getElementById("updated-hint"),
+  updatedSep: document.getElementById("updated-sep"),
   statToApply: document.getElementById("stat-to-apply"),
   statApplied: document.getElementById("stat-applied"),
   statReplied: document.getElementById("stat-replied"),
   statSkipped: document.getElementById("stat-skipped"),
   statGone: document.getElementById("stat-gone"),
   statPendingScore: document.getElementById("stat-pending-score"),
+  statPendingScoreWrap: document.getElementById("stat-pending-score-wrap"),
   pagination: document.getElementById("pagination"),
 };
 
@@ -167,6 +170,50 @@ function applyApplicationStatus(id, appStatus) {
   return true;
 }
 
+function loadStatusCache() {
+  try {
+    const raw = localStorage.getItem(STATUS_CACHE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveStatusCache(cache) {
+  localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(cache));
+}
+
+function setCachedStatus(id, appStatus) {
+  const cache = loadStatusCache();
+  cache[id] = appStatus;
+  saveStatusCache(cache);
+}
+
+function clearCachedStatus(id) {
+  const cache = loadStatusCache();
+  if (!(id in cache)) return;
+  delete cache[id];
+  saveStatusCache(cache);
+}
+
+function applyStatusCache() {
+  const cache = loadStatusCache();
+  for (const item of state.data?.listings || []) {
+    const appStatus = cache[item.id];
+    if (appStatus) applyApplicationStatus(item.id, appStatus);
+  }
+  recalculateCounts();
+}
+
+function mergeStatusCache(statuses) {
+  const cache = loadStatusCache();
+  for (const [id, appStatus] of Object.entries(statuses || {})) {
+    if (appStatus) cache[id] = appStatus;
+  }
+  saveStatusCache(cache);
+}
+
 function recalculateCounts() {
   if (!state.data?.listings) return;
   const counts = {
@@ -189,30 +236,28 @@ function recalculateCounts() {
 
 async function syncApplicationStatuses() {
   const base = apiBase();
-  if (!base || !state.apiOnline) return;
+  const cache = loadStatusCache();
+  if (!base || !state.apiOnline) return false;
   try {
     const res = await fetch(`${base}/api/statuses`);
     const json = await res.json().catch(() => ({}));
-    if (!res.ok || !json.ok || !json.statuses) return;
+    if (!res.ok || !json.ok || !json.statuses) return false;
+    const statuses = json.statuses || {};
     for (const item of state.data?.listings || []) {
-      const appStatus = json.statuses[item.id];
+      const appStatus = statuses[item.id] || cache[item.id];
       if (appStatus) applyApplicationStatus(item.id, appStatus);
     }
+    mergeStatusCache(statuses);
     recalculateCounts();
+    return true;
   } catch (_) {
-    /* keep exported snapshot */
+    return false;
   }
 }
 
 function mergeLocalSkips() {
   const local = loadLocalSkips();
-  for (const item of state.data?.listings || []) {
-    if (local.has(item.id) && item.queueStatus === "to_apply") {
-      item.queueStatus = "skipped";
-      item.appStatus = "skipped";
-    }
-  }
-  recalculateCounts();
+  for (const id of local) setCachedStatus(id, "skipped");
 }
 
 function applySkipToItem(id) {
@@ -286,13 +331,8 @@ function highlightLastClickedRow({ scroll = false, pulse = false } = {}) {
 
 function applyLocalDeletes() {
   const local = loadLocalDeletes();
-  if (!local.size || !state.data?.listings) return;
-  for (const item of state.data.listings) {
-    if (local.has(item.id)) {
-      item.appStatus = "rejected";
-      item.queueStatus = "gone";
-    }
-  }
+  if (!local.size) return;
+  for (const id of local) setCachedStatus(id, "rejected");
 }
 
 function parseTime(value) {
@@ -430,7 +470,7 @@ function searchBlob(item) {
 }
 
 function passesFilters(item) {
-  if (item.queueStatus !== state.tab) return false;
+  if (state.tab !== "all" && item.queueStatus !== state.tab) return false;
 
   if (state.likedOnly && !item.liked) return false;
   if (state.source === "facebook" && !item.isFacebook) return false;
@@ -592,8 +632,13 @@ function detailsCell(item) {
   if (!full) return "—";
   const preview = detailsPreview(full);
   const expandable = detailsWordCount(full) > DETAILS_PREVIEW_WORDS;
-  if (!expandable) return `<div class="details-cell">${esc(full)}</div>`;
-  return `<div class="details-cell expandable" data-id="${esc(item.id)}" title="Click for full details">${esc(preview)}</div>`;
+  const pendingTag = item.detailsPending
+    ? '<span class="details-pending-tag" title="Card summary — full post text still loading">Card</span> '
+    : "";
+  if (!expandable) {
+    return `<div class="details-cell">${pendingTag}${esc(full)}</div>`;
+  }
+  return `<div class="details-cell expandable" data-id="${esc(item.id)}" title="Click for full details">${pendingTag}${esc(preview)}</div>`;
 }
 
 function applyMessage(item) {
@@ -710,20 +755,31 @@ function render() {
   els.statReplied.textContent = String(c.replied ?? 0);
   els.statSkipped.textContent = String(c.skipped ?? 0);
   if (els.statGone) els.statGone.textContent = String(c.gone ?? 0);
-  if (els.statPendingScore) els.statPendingScore.textContent = String(c.pendingScore ?? 0);
+  const pendingScore = c.pendingScore ?? 0;
+  if (els.statPendingScore) els.statPendingScore.textContent = String(pendingScore);
+  if (els.statPendingScoreWrap) els.statPendingScoreWrap.hidden = pendingScore === 0;
   const total = totalPages(items.length);
   els.rowCount.textContent = items.length
     ? `${pageItems.length} on page · ${items.length} total · page ${state.page}/${total}`
     : "0 shown";
   renderPagination(items.length);
-  els.generatedHint.textContent = state.data?.generatedAt
-    ? `Generated ${state.data.generatedAt}. Refresh: python listings_page.py`
-    : "";
-  els.apiHint.textContent = state.apiOnline
-    ? state.apiHasSkip && state.apiHasReplied
-      ? "API online — Mark sent / Replied / Gone sync to database."
-      : "API online but outdated — restart api.py for full status sync."
-    : "API offline — Apply still works; status buttons need api.py running locally.";
+  const updatedAt = (state.data?.generatedAt || "").trim();
+  if (els.updatedHint) {
+    els.updatedHint.textContent = updatedAt ? `Updated ${updatedAt}` : "";
+    els.updatedHint.hidden = !updatedAt;
+  }
+  if (els.updatedSep) els.updatedSep.hidden = !updatedAt;
+  if (els.apiHint) {
+    let apiMessage = "";
+    if (!state.apiOnline) {
+      apiMessage = "Status buttons won't save — run api.py locally.";
+    } else if (!state.apiHasSkip || !state.apiHasReplied) {
+      apiMessage = "Restart api.py so Mark sent / Replied / Gone sync.";
+    }
+    els.apiHint.textContent = apiMessage;
+    els.apiHint.hidden = !apiMessage;
+    els.apiHint.classList.toggle("warn", Boolean(apiMessage));
+  }
 
   updateSortHeaders();
   highlightLastClickedRow();
@@ -798,6 +854,7 @@ async function markGone(id, { label = "Gone" } = {}) {
     local.add(id);
     saveLocalDeletes(local);
     applyApplicationStatus(id, "rejected");
+    setCachedStatus(id, "rejected");
     recalculateCounts();
     render();
     toast(`${label} (saved in this browser)`);
@@ -815,7 +872,9 @@ async function markGone(id, { label = "Gone" } = {}) {
     const local = loadLocalDeletes();
     local.delete(id);
     saveLocalDeletes(local);
-    applyApplicationStatus(id, json.status || "rejected");
+    const status = json.status || "rejected";
+    applyApplicationStatus(id, status);
+    setCachedStatus(id, status);
     recalculateCounts();
     render();
     toast(label);
@@ -836,6 +895,7 @@ async function markSkipped(id) {
     local.add(id);
     saveLocalSkips(local);
     if (applySkipToItem(id)) {
+      setCachedStatus(id, "skipped");
       render();
       toast("Skipped (saved in this browser)");
     }
@@ -859,7 +919,9 @@ async function markSkipped(id) {
     const local = loadLocalSkips();
     local.delete(id);
     saveLocalSkips(local);
-    applyApplicationStatus(id, json.status || "skipped");
+    const status = json.status || "skipped";
+    applyApplicationStatus(id, status);
+    setCachedStatus(id, status);
     recalculateCounts();
     render();
     toast("Skipped");
@@ -870,19 +932,25 @@ async function markSkipped(id) {
 
 async function markReplied(id) {
   const base = apiBase();
-  if (!base) {
-    toast("Start api.py locally to sync status", true);
-    return;
-  }
-  if (!state.apiHasReplied) {
-    toast("Restart api.py — Replied endpoint not loaded", true);
+  if (!base || !state.apiOnline || !state.apiHasReplied) {
+    applyApplicationStatus(id, "replied");
+    setCachedStatus(id, "replied");
+    recalculateCounts();
+    render();
+    toast("Marked replied (saved in this browser)");
+    if (!base) return;
+    if (!state.apiHasReplied) {
+      toast("Restart api.py to sync status to database", true);
+    }
     return;
   }
   try {
     const res = await fetch(`${base}/api/replied/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
-    applyApplicationStatus(id, json.status || "replied");
+    const status = json.status || "replied";
+    applyApplicationStatus(id, status);
+    setCachedStatus(id, status);
     recalculateCounts();
     render();
     toast("Marked as replied");
@@ -893,15 +961,23 @@ async function markReplied(id) {
 
 async function markSent(id) {
   const base = apiBase();
-  if (!base) {
-    toast("Start api.py locally to sync status", true);
+
+  if (!base || !state.apiOnline) {
+    applyApplicationStatus(id, "sent");
+    setCachedStatus(id, "sent");
+    recalculateCounts();
+    render();
+    toast("Marked sent (saved in this browser)");
+    if (!base) return;
     return;
   }
   try {
     const res = await fetch(`${base}/api/sent/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || "Failed");
-    applyApplicationStatus(id, json.status || "sent");
+    const status = json.status || "sent";
+    applyApplicationStatus(id, status);
+    setCachedStatus(id, status);
     recalculateCounts();
     render();
     toast("Marked as sent");
@@ -1016,16 +1092,23 @@ async function init() {
   state.data = await res.json();
   mergeLocalLikes();
   applyLocalDeletes();
-  await checkApi();
-  await syncApplicationStatuses();
   mergeLocalSkips();
+  applyStatusCache();
+  await checkApi();
+  const synced = await syncApplicationStatuses();
+  if (!synced) applyStatusCache();
   bindControls();
   render();
   if (state.lastClickedId) {
     highlightLastClickedRow({ scroll: true });
   }
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && state.lastClickedId) {
+    if (document.visibilityState !== "visible") return;
+    syncApplicationStatuses().then((synced) => {
+      if (!synced) applyStatusCache();
+      render();
+    });
+    if (state.lastClickedId) {
       highlightLastClickedRow({ scroll: true, pulse: true });
     }
   });

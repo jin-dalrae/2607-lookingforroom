@@ -27,6 +27,8 @@ from lfr.score.listing_rules import (
     _ensure_room_type_flags,
     _has_small_household_signal,
     _is_male_household_listing,
+    _is_furniture_or_goods_listing,
+    _is_non_residential_listing,
     _is_office_sublease,
     _is_spanish_promoted_listing,
 )
@@ -168,6 +170,10 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     office_sublease = _is_office_sublease(text, title=loc["title"])
     if office_sublease:
         flags.append("office_sublease_reject")
+    if _is_furniture_or_goods_listing(text, title=loc["title"]):
+        flags.append("furniture_goods_reject")
+    if _is_non_residential_listing(text, title=loc["title"]):
+        flags.append("non_residential_reject")
 
     language_text = f"{loc['title']} {loc['description']}".strip()
     if _is_spanish_promoted_listing(language_text, title=loc["title"]):
@@ -231,6 +237,8 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     if (
         "location_reject" in flags
         or "office_sublease_reject" in flags
+        or "furniture_goods_reject" in flags
+        or "non_residential_reject" in flags
         or "spanish_listing_reject" in flags
         or "male_household_reject" in flags
         or "stale_listing_reject" in flags

@@ -88,7 +88,7 @@ def print_top_listings(n: int = 5) -> None:
         return
 
     print(f"\n{'=' * 60}")
-    print(f"MATCHES ({min(n, len(top))}) — late Jul–Aug 18, ≤$1300")
+    print(f"MATCHES ({min(n, len(top))}) — Aug 1–18, ≤$1300")
     print(f"{'=' * 60}")
     for i, listing in enumerate(top, 1):
         price = listing.get("price")

@@ -101,14 +101,14 @@ def get_channel_stats() -> dict[str, dict[str, int]]:
 
 
 def get_application_status_map() -> dict[str, str]:
-    """Map listing_id → application status for queue-visible rows."""
+    """Map listing_id → application status for all queue rows."""
     init_db()
     with get_connection() as conn:
         rows = conn.execute(
             """
             SELECT listing_id, status
             FROM applications
-            WHERE status NOT IN ('rejected', 'accepted')
+            WHERE status != 'accepted'
             """
         ).fetchall()
     return {str(row["listing_id"]): str(row["status"]) for row in rows}

@@ -17,7 +17,7 @@ def get_listings_with_queue_applications(
         "draft",
         "rejected",
     ),
-    limit: int = 200,
+    limit: int = 500,
 ) -> list[dict[str, Any]]:
     """Listings that have an application in a queue-visible status."""
     init_db()
@@ -49,6 +49,7 @@ def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     from lfr.listings.description import is_junk_facebook_title
     from lfr.listings.location import is_excluded_location, is_fb_search_area_label
     from lfr.pipeline.match import price_within_budget
+    from lfr.score.listing_rules import _is_non_residential_listing
 
     init_db()
     with get_connection() as conn:
@@ -76,6 +77,11 @@ def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     for row in rows:
         listing = dict(row)
         if is_junk_facebook_title(str(listing.get("title") or "")):
+            continue
+        if _is_non_residential_listing(
+            str(listing.get("description") or ""),
+            title=str(listing.get("title") or ""),
+        ):
             continue
         hood = (listing.get("neighborhood") or "").strip()
         if is_fb_search_area_label(hood) and not (listing.get("rental_address") or "").strip():

@@ -48,7 +48,7 @@ def price_within_budget(row: dict[str, Any]) -> bool:
 
 
 def move_in_fits_window(row: dict[str, Any]) -> bool:
-    """True only when move-in is late July 20 – Aug 18, 2026."""
+    """True only when move-in is August 1 – Aug 18, 2026."""
     payload = _flags_payload(row.get("flags_json"))
     fit = str(payload.get("move_in_fit") or "unknown")
     return fit in MOVE_IN_FITS_OK

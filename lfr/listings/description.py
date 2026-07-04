@@ -41,6 +41,11 @@ _FB_CUT_MARKERS = (
     "report this listing",
     "today's picks",
     "marketplace access",
+    "getting around",
+    "provided by walk score",
+    "nearby transit",
+    "nearby schools",
+    "provided by greatschools",
 )
 
 _CL_POSTING_HEADER_RE = re.compile(
@@ -77,6 +82,56 @@ def _is_junk_description(text: str) -> bool:
     return False
 
 
+def _extract_facebook_pdp_body(raw: str) -> str:
+    """Pull PDP body text when the stored blob still has search-page chrome."""
+    if not raw:
+        return ""
+    low = raw.lower()
+    for marker in ("description\n", "description \n"):
+        idx = low.find(marker)
+        if idx == -1:
+            continue
+        chunk = raw[idx + len(marker) :]
+        chunk = _cut_at_markers(chunk, _FB_CUT_MARKERS)
+        chunk = _normalize_text(chunk)
+        if len(chunk) >= 20 and not _is_junk_description(chunk):
+            return chunk
+    for marker in ("rental location\n", "availability\n"):
+        idx = low.find(marker)
+        if idx == -1:
+            continue
+        chunk = raw[idx:]
+        chunk = _cut_at_markers(chunk, _FB_CUT_MARKERS)
+        chunk = _normalize_text(chunk)
+        if len(chunk) >= 20 and not _is_junk_description(chunk):
+            return chunk
+    return ""
+
+
+def _facebook_card_fallback_details(row: dict[str, Any]) -> str:
+    """Minimal card-level summary when the detail page has not been fetched yet."""
+    parts: list[str] = []
+    addr = str(row.get("rental_address") or "").strip()
+    hood = str(row.get("neighborhood") or "").strip()
+    if addr:
+        parts.append(f"Rental Location\n{addr}")
+    elif hood:
+        parts.append(f"Area: {hood}")
+    title = str(row.get("title") or "").strip()
+    if title:
+        parts.append(title)
+    price = row.get("price")
+    try:
+        if price is not None and int(price) > 0:
+            parts.append(f"${int(price):,}/mo")
+    except (TypeError, ValueError):
+        pass
+    move_in = str(row.get("move_in_date") or "").strip()
+    if move_in:
+        parts.append(f"Move-in: {move_in}")
+    return "\n".join(parts)
+
+
 def extract_listing_description(row: dict[str, Any]) -> str:
     """Return cleaned post body text for UI display."""
     raw = str(row.get("description") or "").strip()
@@ -88,6 +143,8 @@ def extract_listing_description(row: dict[str, Any]) -> str:
         text = _cut_at_markers(raw, _FB_CUT_MARKERS)
         text = strip_facebook_page_junk(text)
         text = _cut_at_markers(text, _FB_CUT_MARKERS)
+        if not text or _is_junk_description(_normalize_text(text)):
+            text = _extract_facebook_pdp_body(raw)
     else:
         text = _CL_POSTING_HEADER_RE.sub("", raw, count=1).strip()
 
@@ -95,6 +152,17 @@ def extract_listing_description(row: dict[str, Any]) -> str:
     if _is_junk_description(text):
         return ""
     return text[:_DISPLAY_LIMIT]
+
+
+def queue_display_details(row: dict[str, Any]) -> tuple[str, bool]:
+    """Return queue UI details text and whether it is a card-level fallback."""
+    text = extract_listing_description(row)
+    if text:
+        return text, False
+    if str(row.get("source") or "") != "facebook":
+        return "", False
+    fallback = _facebook_card_fallback_details(row)
+    return fallback, bool(fallback)
 
 
 def description_preview(text: str, *, limit: int = _PREVIEW_LIMIT) -> str:
@@ -122,11 +190,16 @@ def is_junk_facebook_title(title: str) -> bool:
 
 
 def _has_structured_facebook_pdp(row: dict[str, Any]) -> bool:
-    """True when detail fetch captured rental location (and optionally availability)."""
+    """True when detail fetch captured a usable PDP body, not just search chrome."""
     if not (row.get("rental_address") or "").strip():
         return False
-    raw_low = str(row.get("description") or "").lower()
-    return "rental location" in raw_low or "availability" in raw_low
+    raw = str(row.get("description") or "")
+    raw_low = raw.lower()
+    if "rental location" not in raw_low and "availability" not in raw_low:
+        return False
+    if len(extract_listing_description(row)) >= 20:
+        return True
+    return len(_extract_facebook_pdp_body(raw)) >= 20
 
 
 def needs_description_backfill(row: dict[str, Any]) -> bool:

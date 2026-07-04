@@ -27,7 +27,7 @@ CRITERIA = {
     "max_rent": 1300,
     "min_acceptable_sqft": MIN_ACCEPTABLE_SQFT,
     "nice_to_have_sqft": NICE_TO_HAVE_SQFT,
-    "move_in_target": "2026-07-20 to 2026-08-18 (late July through Aug 18)",
+    "move_in_target": "2026-08-01 to 2026-08-18 (August window)",
     "price_focus": "$800–$1000/month",
     "move_in_flex_weeks": 0,
     "wants": (
@@ -220,6 +220,14 @@ OFFICE_SUBLEASE_TERMS = (
     "commercial office",
     "office space sublease",
     "office space sublet",
+    "professional office",
+    "private office",
+    "office space for rent",
+    "office for rent",
+    "office for lease",
+    "for lease: office",
+    "not a living space",
+    "creative studio for rent",
     "coworking",
     "co-working",
     "co working space",
@@ -231,8 +239,40 @@ OFFICE_SUBLEASE_TERMS = (
     "desk space for rent",
 )
 
+FURNITURE_GOODS_TERMS = (
+    "living room set",
+    "dining room set",
+    "dining set",
+    "bedroom set",
+    "solid oak",
+    "sectional sofa",
+    "for sale",
+    "selling ",
+    "sell ",
+    "dresser",
+    "bookcase",
+    "bookshelf",
+    "coffee table",
+    "dining table",
+    "area rug",
+    "mattress only",
+    "mission style desk",
+    "office desk",
+)
+
 _OFFICE_SUBLEASE_TITLE_RE = re.compile(
-    r"office\s+(?:sublease|sublet)\b",
+    r"(?:office\s+(?:sublease|sublet|space|for\s+rent|for\s+lease)|professional\s+office|private\s+office)",
+    re.IGNORECASE,
+)
+
+_OFFICE_CONTEXT_RE = re.compile(
+    r"\b(?:private\s+office|professional\s+office|office\s+space|creative\s+studio|"
+    r"not\s+a\s+living\s+space|coworking|co-working)\b",
+    re.IGNORECASE,
+)
+
+_ROOM_FOR_RENT_RE = re.compile(
+    r"\b(?:room|bedroom)\s+for\s+rent\b",
     re.IGNORECASE,
 )
 _RESIDENTIAL_ROOM_RE = re.compile(

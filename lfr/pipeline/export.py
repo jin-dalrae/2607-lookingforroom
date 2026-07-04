@@ -21,7 +21,7 @@ from lfr.listings.dates import (
     posted_display_label,
     resolve_posted_at,
 )
-from lfr.listings.description import extract_listing_description
+from lfr.listings.description import queue_display_details
 from lfr.listings.location import (
     extract_post_display_address,
     listing_location_context,
@@ -102,7 +102,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     display_neighborhood = post_address or resolve_display_area(row)
     sqft_label = extract_sqft_from_post(row)
     move_in_label = extract_move_in_label(row)
-    description_text = extract_listing_description(row)
+    description_text, details_pending = queue_display_details(row)
     if len(description_text) > EXPORT_DESCRIPTION_MAX:
         description_text = description_text[: EXPORT_DESCRIPTION_MAX - 1].rstrip() + "…"
 
@@ -152,6 +152,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "moveInSort": move_in_sort_value(move_in_label),
         "posterName": extract_poster_name(row),
         "details": description_text or None,
+        "detailsPending": details_pending,
         "to": to_addr,
     }
 
@@ -208,9 +209,15 @@ def write_queue_data(path=None, *, run_backfill: bool = True) -> __import__("pat
         if title_limit > 0:
             backfill_facebook_junk_titles(limit=title_limit)
         detail_limit = int(os.getenv("DETAIL_BACKFILL_LIMIT", "25"))
+        detail_rounds = int(os.getenv("DETAIL_BACKFILL_ROUNDS", "3"))
         detail_stats = {"updated": 0, "rescored": 0}
         if detail_limit > 0:
-            detail_stats = backfill_facebook_details(limit=detail_limit, queue_only=True)
+            for _ in range(max(detail_rounds, 1)):
+                round_stats = backfill_facebook_details(limit=detail_limit, queue_only=True)
+                detail_stats["updated"] += round_stats.get("updated", 0)
+                detail_stats["rescored"] += round_stats.get("rescored", 0)
+                if not round_stats.get("updated"):
+                    break
         import filter as listing_filter
 
         if detail_stats.get("updated") or detail_stats.get("rescored"):
