@@ -721,34 +721,40 @@ function renderRow(item, index) {
   ].filter(Boolean).join(" ");
   const starClass = item.liked ? "star-btn on" : "star-btn";
 
-  const actionBtns = [];
+  const row1 = [];
+  const row2 = [];
+
   if (item.queueStatus !== "gone") {
-    actionBtns.push(`<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`);
+    row1.push(`<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`);
   }
   if (item.queueStatus === "to_apply") {
-    actionBtns.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
-    actionBtns.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
+    row1.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
+    row1.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
+    row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "skipped") {
-    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
+    row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "applied") {
-    actionBtns.push(`<button type="button" class="link-btn replied-btn" data-id="${esc(item.id)}">Replied</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
+    row1.push(`<button type="button" class="link-btn replied-btn" data-id="${esc(item.id)}">Replied</button>`);
+    row2.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
+    row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "replied") {
-    actionBtns.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
+    row2.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
+    row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "gone") {
-    actionBtns.push(`<button type="button" class="link-btn revert-btn" data-id="${esc(item.id)}">Revert</button>`);
+    row1.push(`<button type="button" class="link-btn revert-btn" data-id="${esc(item.id)}">Revert</button>`);
   }
+
+  const row1Html = row1.length ? `<div class="action-row" style="display:flex; gap:0.35rem; margin-bottom:0.35rem;">${row1.join("")}</div>` : "";
+  const row2Html = row2.length ? `<div class="action-row" style="display:flex; gap:0.35rem;">${row2.join("")}</div>` : "";
+  const actionsHtml = `<div style="display:flex; flex-direction:column; align-items:flex-start;">${row1Html}${row2Html}</div>`;
 
   return `
     <tr class="${rowClass}"
@@ -772,7 +778,7 @@ function renderRow(item, index) {
       <td class="num score-cell">${score}</td>
       <td><span class="badge badge-${st.css}">${esc(st.label)}</span></td>
       <td><span class="badge badge-channel">${esc(sourceLabel(item))}</span></td>
-      <td class="links-cell">${actionBtns.join("")}</td>
+      <td class="links-cell">${actionsHtml}</td>
     </tr>`;
 }
 

@@ -279,7 +279,7 @@ tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
   color: var(--blue);
 }
 
-.links-cell { white-space: nowrap; }
+.links-cell { min-width: 10.5rem; }
 
 .badge {
   display: inline-block;
