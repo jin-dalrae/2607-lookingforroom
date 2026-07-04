@@ -191,9 +191,22 @@ def is_junk_facebook_title(title: str) -> bool:
 
 def _has_structured_facebook_pdp(row: dict[str, Any]) -> bool:
     """True when detail fetch captured a usable PDP body, not just search chrome."""
+    raw = str(row.get("description") or "").strip()
+    if not raw:
+        return False
+
+    lines = [line.strip() for line in raw.split("\n") if line.strip()]
+    if len(lines) <= 2:
+        is_fallback = True
+        for line in lines:
+            if line.lower() != "rental location" and not line.lower().startswith("listed") and line != (row.get("rental_address") or "").strip():
+                is_fallback = False
+                break
+        if is_fallback:
+            return False
+
     if not (row.get("rental_address") or "").strip():
         return False
-    raw = str(row.get("description") or "")
     raw_low = raw.lower()
     if "rental location" not in raw_low and "availability" not in raw_low:
         return False
