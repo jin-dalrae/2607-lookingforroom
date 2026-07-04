@@ -6,6 +6,7 @@ const state = {
   maxPrice: "",
 
   likedOnly: false,
+  memoOnly: false,
   sortKey: "score",
   sortDir: -1,
   apiOnline: false,
@@ -43,6 +44,7 @@ const els = {
   maxPrice: document.getElementById("filter-price"),
 
   likedOnly: document.getElementById("filter-liked"),
+  memoOnly: document.getElementById("filter-memo"),
   rowCount: document.getElementById("row-count"),
   apiHint: document.getElementById("api-hint"),
   updatedHint: document.getElementById("updated-hint"),
@@ -501,6 +503,7 @@ function passesFilters(item) {
   if (state.tab !== "all" && item.queueStatus !== state.tab) return false;
 
   if (state.likedOnly && !item.liked) return false;
+  if (state.memoOnly && !item.notes) return false;
   if (state.source === "facebook" && !item.isFacebook) return false;
   if (state.source === "craigslist" && item.isFacebook) return false;
   const maxPrice = state.maxPrice === "" ? null : Number(state.maxPrice);
@@ -1175,6 +1178,10 @@ function bindControls() {
   });
   els.likedOnly.addEventListener("change", () => {
     state.likedOnly = els.likedOnly.checked;
+    rerenderFromStart();
+  });
+  els.memoOnly.addEventListener("change", () => {
+    state.memoOnly = els.memoOnly.checked;
     rerenderFromStart();
   });
 
