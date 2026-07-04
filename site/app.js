@@ -164,6 +164,11 @@ function applyApplicationStatus(id, appStatus) {
   if (!item) return false;
   item.appStatus = appStatus;
   item.queueStatus = queueStatusFromApp(appStatus);
+  const nowStr = new Date().toISOString();
+  item.appUpdatedAt = nowStr;
+  if (appStatus === "sent") {
+    item.appSentAt = nowStr;
+  }
   return true;
 }
 
@@ -427,20 +432,44 @@ function moveInSortKey(item) {
   return MOVE_IN_SORT_UNKNOWN;
 }
 
+function formatAppDate(isoString) {
+  if (!isoString) return "";
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "";
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const m = months[d.getMonth()];
+    const date = d.getDate();
+    let hours = d.getHours();
+    const ampm = hours >= 12 ? "PM" : "AM";
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${m} ${date}, ${hours}:${min} ${ampm}`;
+  } catch (_) {
+    return "";
+  }
+}
+
 function statusMeta(item) {
+  const dateStr = item.appUpdatedAt ? formatAppDate(item.appUpdatedAt) : "";
+  const sentDateStr = item.appSentAt ? formatAppDate(item.appSentAt) : dateStr;
+  const suffix = dateStr ? ` ${dateStr}` : "";
+  const sentSuffix = sentDateStr ? ` ${sentDateStr}` : "";
+
   switch (item.queueStatus) {
     case "to_apply":
       return { label: "To apply", css: "apply" };
     case "applied":
-      return { label: "Sent — awaiting reply", css: "sent" };
+      return { label: "Applied" + sentSuffix, css: "sent" };
     case "replied":
-      return { label: "Replied", css: "replied" };
+      return { label: "Replied" + suffix, css: "replied" };
     case "skipped":
-      return { label: "Skipped", css: "skipped" };
+      return { label: "Skipped" + suffix, css: "skipped" };
     case "gone":
-      return { label: "Gone / rejected", css: "gone" };
+      return { label: "Gone" + suffix, css: "gone" };
     default:
-      return { label: item.appStatus || "Other", css: "skipped" };
+      return { label: (item.appStatus || "Other") + suffix, css: "skipped" };
   }
 }
 
@@ -606,8 +635,18 @@ function subLines(item) {
   const tags = [];
   if (item.posterName) tags.push(`<span class="tag-inline tag-poster">${esc(item.posterName)}</span>`);
   if (item.transitTag) tags.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
-  if (!tags.length) return "";
-  return `<div class="cell-sub">${tags.join("")}</div>`;
+  
+  const tagsHtml = tags.length ? `<div class="cell-sub">${tags.join("")}</div>` : "";
+  
+  const memoText = item.notes || "";
+  const memoHtml = `
+    <div class="memo-wrap" style="margin-top:0.4rem; display:flex; align-items:center; gap:0.4rem;">
+      <span style="font-size:0.75rem; font-weight:700; color:var(--muted); text-transform:uppercase; letter-spacing:0.02em;">Memo:</span>
+      <input type="text" class="memo-input" data-id="${esc(item.id)}" value="${esc(memoText)}" placeholder="Add note / phone..." style="flex:1; font-size:0.8rem; padding:0.15rem 0.35rem; border:1px solid var(--border); border-radius:4px; max-width:16rem; background:#fafafa; color:var(--text);" autocomplete="off">
+    </div>
+  `;
+  
+  return tagsHtml + memoHtml;
 }
 
 function detailsWordCount(text) {
@@ -682,9 +721,10 @@ function renderRow(item, index) {
   ].filter(Boolean).join(" ");
   const starClass = item.liked ? "star-btn on" : "star-btn";
 
-  const actionBtns = [
-    `<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`,
-  ];
+  const actionBtns = [];
+  if (item.queueStatus !== "gone") {
+    actionBtns.push(`<button type="button" class="link-btn primary apply-btn" data-id="${esc(item.id)}">Apply</button>`);
+  }
   if (item.queueStatus === "to_apply") {
     actionBtns.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
     actionBtns.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
@@ -705,6 +745,9 @@ function renderRow(item, index) {
     actionBtns.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
     actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
     actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
+  }
+  if (item.queueStatus === "gone") {
+    actionBtns.push(`<button type="button" class="link-btn revert-btn" data-id="${esc(item.id)}">Revert</button>`);
   }
 
   return `
@@ -932,6 +975,76 @@ async function markScam(id) {
   }
 }
 
+async function revertListing(id) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item) return;
+
+  const base = apiBase();
+  if (!base || !state.apiOnline) {
+    const local = loadLocalDeletes();
+    local.delete(id);
+    saveLocalDeletes(local);
+    const skips = loadLocalSkips();
+    skips.delete(id);
+    saveLocalSkips(skips);
+    
+    clearCachedStatus(id);
+    item.appStatus = null;
+    item.queueStatus = "to_apply";
+    item.appUpdatedAt = null;
+    item.appSentAt = null;
+    recalculateCounts();
+    render();
+    toast("Reverted (saved in this browser)");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${base}/api/revert/${encodeURIComponent(id)}`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+    
+    clearCachedStatus(id);
+    const local = loadLocalDeletes();
+    local.delete(id);
+    saveLocalDeletes(local);
+    
+    item.appStatus = null;
+    item.queueStatus = "to_apply";
+    item.appUpdatedAt = null;
+    item.appSentAt = null;
+    recalculateCounts();
+    render();
+    toast("Listing reverted back to To Apply");
+  } catch (err) {
+    toast(String(err.message || err), true);
+  }
+}
+
+async function saveListingMemo(id, text) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (item) {
+    item.notes = text;
+  }
+  const base = apiBase();
+  if (!base || !state.apiOnline) {
+    toast("Memo saved in browser (run api.py to sync to DB)");
+    return;
+  }
+  try {
+    const res = await fetch(`${base}/api/notes/${encodeURIComponent(id)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ notes: text }),
+    });
+    const json = await res.json();
+    if (!json.ok) throw new Error(json.error || "Failed");
+    toast("Memo saved successfully");
+  } catch (err) {
+    toast("Failed to save memo: " + err.message, true);
+  }
+}
+
 async function markSkipped(id) {
   const base = apiBase();
 
@@ -1132,6 +1245,18 @@ function bindControls() {
     if (goneBtn) {
       markGone(goneBtn.dataset.id);
       return;
+    }
+    const revertBtn = event.target.closest(".revert-btn");
+    if (revertBtn) {
+      revertListing(revertBtn.dataset.id);
+      return;
+    }
+  });
+
+  els.tbody.addEventListener("change", (event) => {
+    const memoInput = event.target.closest(".memo-input");
+    if (memoInput) {
+      saveListingMemo(memoInput.dataset.id, memoInput.value);
     }
   });
 }

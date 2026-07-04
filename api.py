@@ -110,6 +110,8 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                         "scrape",
                         "scrape/status",
                         "scam",
+                        "revert",
+                        "notes",
                     ],
                 },
             )
@@ -139,6 +141,8 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         like_match = re.match(r"^/api/like/([^/]+)$", path)
         delete_match = re.match(r"^/api/delete/([^/]+)$", path)
         scam_match = re.match(r"^/api/scam/([^/]+)$", path)
+        revert_match = re.match(r"^/api/revert/([^/]+)$", path)
+        notes_match = re.match(r"^/api/notes/([^/]+)$", path)
 
         if draft_match:
             listing_id = draft_match.group(1)
@@ -168,10 +172,53 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             listing_id = scam_match.group(1)
             self._handle_scam(listing_id)
             return
+        if revert_match:
+            listing_id = revert_match.group(1)
+            self._handle_revert(listing_id)
+            return
+        if notes_match:
+            listing_id = notes_match.group(1)
+            self._handle_notes(listing_id)
+            return
         if path == "/api/scrape":
             self._handle_scrape()
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
+
+    def _handle_notes(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+
+        body = self._read_json_body()
+        notes_text = str(body.get("notes") or "").strip()
+
+        from lfr.db.connection import get_connection
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat()
+        with get_connection() as conn:
+            existing = conn.execute("SELECT 1 FROM applications WHERE listing_id = ?", (listing["id"],)).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE applications SET notes = ?, updated_at = ? WHERE listing_id = ?",
+                    (notes_text, now, listing["id"]),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO applications (listing_id, status, draft_text, notes, created_at, updated_at)
+                    VALUES (?, 'draft', '', ?, ?, ?)
+                    """,
+                    (listing["id"], notes_text, now, now),
+                )
+            conn.commit()
+
+        _json_response(self, 200, {"ok": True, "notes": notes_text})
 
     def _handle_scam(self, listing_id: str) -> None:
         if not ID_RE.match(listing_id):
@@ -187,6 +234,28 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             self,
             200,
             {"ok": True, "status": "rejected", "is_scam_likely": True},
+        )
+
+    def _handle_revert(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+
+        from lfr.db.connection import get_connection
+        with get_connection() as conn:
+            conn.execute("DELETE FROM applications WHERE listing_id = ?", (listing["id"],))
+            conn.execute("UPDATE scores SET is_scam_likely = 0 WHERE listing_id = ?", (listing["id"],))
+            conn.commit()
+
+        _json_response(
+            self,
+            200,
+            {"ok": True, "status": "draft", "is_scam_likely": False},
         )
 
     def _handle_scrape_status(self) -> None:
