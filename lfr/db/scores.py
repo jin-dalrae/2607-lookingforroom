@@ -335,3 +335,33 @@ def _listing_with_score(listing_id: str) -> dict[str, Any] | None:
     return dict(row) if row else None
 
 
+def mark_listing_scam(listing_id: str) -> None:
+    """Mark a listing as likely a scam (score 0, is_scam_likely 1)."""
+    init_db()
+    with get_connection() as conn:
+        existing = conn.execute("SELECT 1 FROM scores WHERE listing_id = ?", (listing_id,)).fetchone()
+        if existing:
+            conn.execute(
+                """
+                UPDATE scores
+                SET score = 0, is_scam_likely = 1, scored_at = ?
+                WHERE listing_id = ?
+                """,
+                (_utcnow(), listing_id),
+            )
+        else:
+            conn.execute(
+                """
+                INSERT INTO scores
+                    (listing_id, score, is_private_room, is_scam_likely,
+                     move_in_compatible, flags_json, reasoning, scored_at)
+                VALUES (?, 0, 0, 1, 0, '{"flags": ["scam"]}', 'Marked as scam by user', ?)
+                """,
+                (listing_id, _utcnow()),
+            )
+        conn.commit()
+
+    from lfr.db.applications import mark_application_rejected
+    mark_application_rejected(listing_id, notes="scam")
+
+

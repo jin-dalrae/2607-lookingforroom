@@ -25,6 +25,7 @@ from db import (
     mark_application_skipped,
     set_listing_liked,
     toggle_listing_liked,
+    mark_listing_scam,
 )
 from gmail_creds import SETUP_INSTRUCTIONS, gmail_configured
 from gmail_draft import create_gmail_draft, format_result
@@ -108,6 +109,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                         "statuses",
                         "scrape",
                         "scrape/status",
+                        "scam",
                     ],
                 },
             )
@@ -136,6 +138,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         skip_match = re.match(r"^/api/skip/([^/]+)$", path)
         like_match = re.match(r"^/api/like/([^/]+)$", path)
         delete_match = re.match(r"^/api/delete/([^/]+)$", path)
+        scam_match = re.match(r"^/api/scam/([^/]+)$", path)
 
         if draft_match:
             listing_id = draft_match.group(1)
@@ -161,10 +164,30 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             listing_id = delete_match.group(1)
             self._handle_delete(listing_id)
             return
+        if scam_match:
+            listing_id = scam_match.group(1)
+            self._handle_scam(listing_id)
+            return
         if path == "/api/scrape":
             self._handle_scrape()
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
+
+    def _handle_scam(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+        mark_listing_scam(listing["id"])
+        _json_response(
+            self,
+            200,
+            {"ok": True, "status": "rejected", "is_scam_likely": True},
+        )
 
     def _handle_scrape_status(self) -> None:
         global _is_scraping, _last_scrape_status, _last_scrape_error

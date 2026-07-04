@@ -687,9 +687,11 @@ function renderRow(item, index) {
     actionBtns.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Mark sent</button>`);
     actionBtns.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
     actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "skipped") {
     actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "applied") {
     actionBtns.push(`<button type="button" class="link-btn replied-btn" data-id="${esc(item.id)}">Replied</button>`);
@@ -889,6 +891,41 @@ async function deleteListing(id) {
   return markGone(id, { label: "Deleted" });
 }
 
+async function markScam(id) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item) return;
+
+  const base = apiBase();
+  if (!base || !state.apiOnline) {
+    const local = loadLocalDeletes();
+    local.add(id);
+    saveLocalDeletes(local);
+    applyApplicationStatus(id, "rejected");
+    setCachedStatus(id, "rejected");
+    recalculateCounts();
+    render();
+    toast("Marked scam (saved in this browser)");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${base}/api/scam/${encodeURIComponent(id)}`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+    const local = loadLocalDeletes();
+    local.delete(id);
+    saveLocalDeletes(local);
+    const status = json.status || "rejected";
+    applyApplicationStatus(id, status);
+    setCachedStatus(id, status);
+    recalculateCounts();
+    render();
+    toast("Marked as likely scam");
+  } catch (err) {
+    toast(String(err.message || err), true);
+  }
+}
+
 async function markSkipped(id) {
   const base = apiBase();
 
@@ -1073,6 +1110,11 @@ function bindControls() {
     const deleteBtn = event.target.closest(".delete-btn");
     if (deleteBtn) {
       deleteListing(deleteBtn.dataset.id);
+      return;
+    }
+    const scamBtn = event.target.closest(".scam-btn");
+    if (scamBtn) {
+      markScam(scamBtn.dataset.id);
       return;
     }
     const repliedBtn = event.target.closest(".replied-btn");
