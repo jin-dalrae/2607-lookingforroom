@@ -698,9 +698,13 @@ function renderRow(item, index) {
   if (item.queueStatus === "applied") {
     actionBtns.push(`<button type="button" class="link-btn replied-btn" data-id="${esc(item.id)}">Replied</button>`);
     actionBtns.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
+    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "replied") {
     actionBtns.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
+    actionBtns.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    actionBtns.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
 
   return `
