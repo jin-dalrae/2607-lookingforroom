@@ -104,6 +104,7 @@ def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     from lfr.listings.description import is_junk_facebook_title
     from lfr.listings.location import is_excluded_location
     from lfr.pipeline.match import price_within_budget
+    from lfr.score.listing_rules import _is_non_residential_listing
 
     init_db()
     with get_connection() as conn:
@@ -131,6 +132,11 @@ def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     for row in rows:
         listing = dict(row)
         if is_junk_facebook_title(str(listing.get("title") or "")):
+            continue
+        if _is_non_residential_listing(
+            str(listing.get("description") or ""),
+            title=str(listing.get("title") or ""),
+        ):
             continue
         if not price_within_budget(listing):
             continue
