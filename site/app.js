@@ -452,6 +452,8 @@ function sourceLabel(item) {
 function searchBlob(item) {
   return [
     item.title,
+    item.price ? String(item.price) : "",
+    item.price ? "$" + item.price : "",
     item.displayAddress,
     item.rentalAddress,
     item.neighborhood,
