@@ -497,6 +497,7 @@ function searchBlob(item) {
     item.moveInLabel,
     item.posterName,
     item.details,
+    item.notes,
     item.groupId ? "group-" + item.groupId : "",
     sourceLabel(item),
   ].filter(Boolean).join(" ").toLowerCase();
