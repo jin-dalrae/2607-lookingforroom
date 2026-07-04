@@ -117,6 +117,18 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         }
     )
 
+    app_notes = ""
+    if app and app.get("notes"):
+        raw_notes = app["notes"]
+        try:
+            parsed = json.loads(raw_notes)
+            if isinstance(parsed, dict):
+                app_notes = parsed.get("user_notes") or ""
+            else:
+                app_notes = raw_notes
+        except Exception:
+            app_notes = raw_notes
+
     return {
         "id": listing_id,
         "title": row.get("title") or "Untitled",
@@ -143,7 +155,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "queueStatus": _queue_status(app_status),
         "appUpdatedAt": app.get("updated_at") if app else None,
         "appSentAt": app.get("sent_at") if app else None,
-        "notes": app.get("notes") if app else "",
+        "notes": app_notes,
         "postedAt": posted_at,
         "postedLabel": posted_display_label(row),
         "lat": coords[0] if coords else None,
