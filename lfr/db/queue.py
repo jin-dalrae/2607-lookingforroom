@@ -48,7 +48,7 @@ def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     from lfr.listings.dates import is_stale_listing
     from lfr.listings.description import is_junk_facebook_title
     from lfr.listings.location import is_excluded_location, is_fb_search_area_label
-    from lfr.pipeline.match import price_within_budget
+    from lfr.pipeline.match import price_within_budget, queue_excluded_move_in
     from lfr.score.listing_rules import _is_non_residential_listing
 
     init_db()
@@ -94,6 +94,8 @@ def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
             continue
         if is_stale_listing(listing):
             continue
+        if queue_excluded_move_in(listing):
+            continue
         results.append(listing)
     return results
 
@@ -103,7 +105,7 @@ def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     from lfr.listings.dates import is_stale_listing
     from lfr.listings.description import is_junk_facebook_title
     from lfr.listings.location import is_excluded_location
-    from lfr.pipeline.match import price_within_budget
+    from lfr.pipeline.match import price_within_budget, queue_excluded_move_in
     from lfr.score.listing_rules import _is_non_residential_listing
 
     init_db()
@@ -143,6 +145,8 @@ def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
         if is_excluded_location(listing):
             continue
         if is_stale_listing(listing):
+            continue
+        if queue_excluded_move_in(listing):
             continue
         results.append(listing)
     return results

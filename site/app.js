@@ -10,6 +10,7 @@ const state = {
   sortKey: "score",
   sortDir: -1,
   apiOnline: false,
+  apiHasScrape: false,
   apiHasLike: false,
   apiHasDelete: false,
   apiHasReplied: false,
@@ -83,16 +84,23 @@ async function copyText(text) {
   }
 }
 
+function isLocalDev() {
+  const host = window.location.hostname;
+  return host === "localhost" || host === "127.0.0.1";
+}
+
 function apiBase() {
   const fromData = (state.data?.apiUrl || "").trim();
   if (fromData) return fromData.replace(/\/$/, "");
-  return "http://127.0.0.1:8787";
+  if (isLocalDev()) return "http://127.0.0.1:8787";
+  return window.location.origin;
 }
 
 async function checkApi() {
   const base = apiBase();
   if (!base) {
     state.apiOnline = false;
+    state.apiHasScrape = false;
     state.apiHasSkip = false;
     state.apiHasLike = false;
     state.apiHasDelete = false;
@@ -100,16 +108,21 @@ async function checkApi() {
     return;
   }
   try {
-    const res = await fetch(`${base}/api/health`, { method: "GET" });
+    const res = await fetch(`${base}/api/health`, { method: "GET", credentials: "same-origin" });
     const json = await res.json();
     state.apiOnline = Boolean(json.ok);
     const endpoints = Array.isArray(json.endpoints) ? json.endpoints : [];
+    state.apiHasScrape =
+      Boolean(json.scrapeAvailable) ||
+      endpoints.includes("scrape") ||
+      endpoints.includes("scrape/status");
     state.apiHasSkip = endpoints.includes("skip");
     state.apiHasLike = endpoints.includes("like");
     state.apiHasDelete = endpoints.includes("delete");
     state.apiHasReplied = endpoints.includes("replied");
   } catch (_) {
     state.apiOnline = false;
+    state.apiHasScrape = false;
     state.apiHasSkip = false;
     state.apiHasLike = false;
     state.apiHasDelete = false;
@@ -169,9 +182,11 @@ function applyApplicationStatus(id, appStatus, isLocalAction = false) {
   if (isLocalAction) {
     const nowStr = new Date().toISOString();
     item.appUpdatedAt = nowStr;
-    if (appStatus === "sent") {
-      item.appSentAt = nowStr;
-    }
+    if (appStatus === "sent" && !item.appSentAt) item.appSentAt = nowStr;
+    if (appStatus === "replied" && !item.appRepliedAt) item.appRepliedAt = nowStr;
+    if (appStatus === "toured" && !item.appTouredAt) item.appTouredAt = nowStr;
+    if (appStatus === "rejected" && !item.appRejectedAt) item.appRejectedAt = nowStr;
+    if (appStatus === "skipped" && !item.appSkippedAt) item.appSkippedAt = nowStr;
   }
   return true;
 }
@@ -240,12 +255,42 @@ function recalculateCounts() {
   state.data.counts = { ...state.data.counts, ...counts };
 }
 
+function applyServerLikes(likes) {
+  if (!Array.isArray(likes)) return;
+  const liked = new Set(likes);
+  for (const item of state.data?.listings || []) {
+    item.liked = liked.has(item.id);
+  }
+  saveLocalLikes(liked);
+}
+
+function applyServerNotes(notes) {
+  if (!notes || typeof notes !== "object") return;
+  for (const item of state.data?.listings || []) {
+    if (notes[item.id]) item.notes = notes[item.id];
+  }
+}
+
+function applyServerMilestones(milestones) {
+  if (!milestones || typeof milestones !== "object") return;
+  for (const item of state.data?.listings || []) {
+    const m = milestones[item.id];
+    if (!m) continue;
+    if (m.sentAt) item.appSentAt = m.sentAt;
+    if (m.repliedAt) item.appRepliedAt = m.repliedAt;
+    if (m.touredAt) item.appTouredAt = m.touredAt;
+    if (m.rejectedAt) item.appRejectedAt = m.rejectedAt;
+    if (m.skippedAt) item.appSkippedAt = m.skippedAt;
+    if (m.updatedAt) item.appUpdatedAt = m.updatedAt;
+  }
+}
+
 async function syncApplicationStatuses() {
   const base = apiBase();
   const cache = loadStatusCache();
   if (!base || !state.apiOnline) return false;
   try {
-    const res = await fetch(`${base}/api/statuses`);
+    const res = await fetch(`${base}/api/statuses`, { credentials: "same-origin" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok || !json.statuses) return false;
     const statuses = json.statuses || {};
@@ -253,6 +298,9 @@ async function syncApplicationStatuses() {
       const appStatus = statuses[item.id] || cache[item.id];
       if (appStatus) applyApplicationStatus(item.id, appStatus);
     }
+    applyServerLikes(json.likes);
+    applyServerNotes(json.notes);
+    applyServerMilestones(json.milestones);
     mergeStatusCache(statuses);
     recalculateCounts();
     return true;
@@ -455,17 +503,67 @@ function formatAppDate(isoString) {
   }
 }
 
+function formatStatusDate(isoString) {
+  if (!isoString) return "";
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return "";
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    return `${months[d.getMonth()]} ${d.getDate()}`;
+  } catch (_) {
+    return "";
+  }
+}
+
+function statusCssFor(item) {
+  switch (item.queueStatus) {
+    case "to_apply":
+      return "apply";
+    case "applied":
+      return item.appStatus === "toured" ? "toured" : "sent";
+    case "replied":
+      return "replied";
+    case "skipped":
+      return "skipped";
+    case "gone":
+      return "gone";
+    default:
+      return "skipped";
+  }
+}
+
+function statusTimelineParts(item) {
+  const parts = [];
+  const add = (label, iso) => {
+    const date = formatStatusDate(iso);
+    if (date) parts.push(`${label} ${date}`);
+  };
+  if (item.appSentAt) add("Applied", item.appSentAt);
+  if (item.appRepliedAt) add("Replied", item.appRepliedAt);
+  if (item.appTouredAt) add("Visited", item.appTouredAt);
+  if (item.appSkippedAt) add("Skipped", item.appSkippedAt);
+  if (item.appRejectedAt) add("Gone", item.appRejectedAt);
+  return parts;
+}
+
 function statusMeta(item) {
-  const dateStr = item.appUpdatedAt ? formatAppDate(item.appUpdatedAt) : "";
-  const sentDateStr = item.appSentAt ? formatAppDate(item.appSentAt) : dateStr;
+  const timeline = statusTimelineParts(item);
+  if (timeline.length) {
+    return {
+      label: timeline.join(", "),
+      css: statusCssFor(item),
+      timeline: timeline.length > 1,
+    };
+  }
+
+  const dateStr = item.appUpdatedAt ? formatStatusDate(item.appUpdatedAt) : "";
   const suffix = dateStr ? ` ${dateStr}` : "";
-  const sentSuffix = sentDateStr ? ` ${sentDateStr}` : "";
 
   switch (item.queueStatus) {
     case "to_apply":
       return { label: "To apply", css: "apply" };
     case "applied":
-      return { label: "Applied" + sentSuffix, css: "sent" };
+      return { label: "Applied" + suffix, css: "sent" };
     case "replied":
       return { label: "Replied" + suffix, css: "replied" };
     case "skipped":
@@ -480,6 +578,20 @@ function statusMeta(item) {
 function sourceLabel(item) {
   if (item.isFacebook) return "📘 Facebook";
   return "Craigslist";
+}
+
+function isSearching() {
+  return Boolean(state.search.trim());
+}
+
+function searchStatusRank(item) {
+  if (item.queueStatus === "replied") return 0;
+  if (item.appStatus === "toured") return 1;
+  if (item.queueStatus === "to_apply") return 2;
+  if (item.queueStatus === "applied") return 3;
+  if (item.queueStatus === "skipped") return 4;
+  if (item.queueStatus === "gone") return 5;
+  return 6;
 }
 
 function searchBlob(item) {
@@ -500,11 +612,12 @@ function searchBlob(item) {
     item.notes,
     item.groupId ? "group-" + item.groupId : "",
     sourceLabel(item),
+    statusTimelineParts(item).join(" "),
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function passesFilters(item) {
-  if (state.tab !== "all" && item.queueStatus !== state.tab) return false;
+  if (!isSearching() && state.tab !== "all" && item.queueStatus !== state.tab) return false;
 
   if (state.likedOnly && !item.liked) return false;
   if (state.memoOnly && !item.notes) return false;
@@ -556,6 +669,10 @@ function sortValue(item, key) {
 function sortedFilteredItems() {
   const items = (state.data?.listings || []).filter(passesFilters);
   items.sort((a, b) => {
+    if (isSearching()) {
+      const rankDiff = searchStatusRank(a) - searchStatusRank(b);
+      if (rankDiff !== 0) return rankDiff;
+    }
     const av = sortValue(a, state.sortKey);
     const bv = sortValue(b, state.sortKey);
     if (av < bv) return -1 * state.sortDir;
@@ -659,6 +776,10 @@ function subLines(item) {
   return tagsHtml + memoHtml;
 }
 
+function listingById(id) {
+  return (state.data?.listings || []).find((row) => row.id === id);
+}
+
 function detailsWordCount(text) {
   return String(text || "").trim().split(/\s+/).filter(Boolean).length;
 }
@@ -671,22 +792,42 @@ function detailsPreview(text) {
   return `${words.slice(0, DETAILS_PREVIEW_WORDS).join(" ")}…`;
 }
 
-function listingById(id) {
-  return (state.data?.listings || []).find((row) => row.id === id);
+function listingDetailsFull(item) {
+  return ((item?.detailsRaw || item?.details) || "").trim();
 }
 
 function detailsCell(item) {
-  const full = (item.details || "").trim();
-  if (!full) return "—";
-  const preview = detailsPreview(full);
-  const expandable = detailsWordCount(full) > DETAILS_PREVIEW_WORDS;
+  const cleaned = (item.details || "").trim();
+  const full = listingDetailsFull(item);
+  if (!cleaned && !full) return "—";
+  const preview = detailsPreview(cleaned || full);
+  const expandable =
+    detailsWordCount(full) > DETAILS_PREVIEW_WORDS ||
+    full.length > (cleaned.length || 0) + 20;
   const pendingTag = item.detailsPending
     ? '<span class="details-pending-tag" title="Card summary — full post text still loading">Card</span> '
     : "";
   if (!expandable) {
     return `<div class="details-cell">${pendingTag}${esc(full)}</div>`;
   }
-  return `<div class="details-cell expandable" data-id="${esc(item.id)}" title="Click for full details">${pendingTag}${esc(preview)}</div>`;
+  return `<div class="details-cell expandable collapsed" data-id="${esc(item.id)}" title="Click for full details">${pendingTag}<span class="details-text">${esc(preview)}</span></div>`;
+}
+
+function renderDetailsCell(detailsEl, item, expanded) {
+  const cleaned = (item?.details || "").trim();
+  const full = listingDetailsFull(item);
+  const preview = detailsPreview(cleaned || full);
+  const pendingTag = item?.detailsPending
+    ? '<span class="details-pending-tag" title="Card summary — full post text still loading">Card</span> '
+    : "";
+  const textEl = detailsEl.querySelector(".details-text");
+  detailsEl.classList.toggle("expanded", expanded);
+  detailsEl.classList.toggle("collapsed", !expanded);
+  if (textEl) {
+    textEl.textContent = expanded ? full : preview;
+    return;
+  }
+  detailsEl.innerHTML = `${pendingTag}<span class="details-text">${esc(expanded ? full : preview)}</span>`;
 }
 
 function applyMessage(item) {
@@ -787,7 +928,9 @@ function renderRow(item, index) {
       <td>${esc(posted)}</td>
       <td>${esc(scraped)}</td>
       <td class="num score-cell">${score}</td>
-      <td><span class="badge badge-${st.css}">${esc(st.label)}</span></td>
+      <td>${st.timeline
+    ? `<span class="status-timeline status-timeline-${st.css}">${esc(st.label)}</span>`
+    : `<span class="badge badge-${st.css}">${esc(st.label)}</span>`}</td>
       <td><span class="badge badge-channel">${esc(sourceLabel(item))}</span></td>
       <td class="links-cell">${actionsHtml}</td>
     </tr>`;
@@ -837,7 +980,9 @@ function render() {
   if (els.apiHint) {
     let apiMessage = "";
     if (!state.apiOnline) {
-      apiMessage = "Status buttons won't save — run api.py locally.";
+      apiMessage = isLocalDev()
+        ? "Status buttons won't save — run api.py locally."
+        : "Status buttons won't save — online API unavailable.";
     } else if (!state.apiHasSkip || !state.apiHasReplied) {
       apiMessage = "Restart api.py so Sent / Replied / Gone sync.";
     }
@@ -848,8 +993,8 @@ function render() {
 
   const scrapeBtn = document.getElementById("scrape-btn");
   const scrapeSep = document.getElementById("scrape-sep");
-  if (scrapeBtn) scrapeBtn.style.display = state.apiOnline ? "inline-block" : "none";
-  if (scrapeSep) scrapeSep.hidden = !state.apiOnline;
+  if (scrapeBtn) scrapeBtn.style.display = state.apiHasScrape ? "inline-block" : "none";
+  if (scrapeSep) scrapeSep.hidden = !state.apiHasScrape;
 
   updateSortHeaders();
   highlightLastClickedRow();
@@ -1010,6 +1155,10 @@ async function revertListing(id) {
     item.queueStatus = "to_apply";
     item.appUpdatedAt = null;
     item.appSentAt = null;
+    item.appRepliedAt = null;
+    item.appTouredAt = null;
+    item.appRejectedAt = null;
+    item.appSkippedAt = null;
     recalculateCounts();
     render();
     toast("Reverted (saved in this browser)");
@@ -1030,6 +1179,10 @@ async function revertListing(id) {
     item.queueStatus = "to_apply";
     item.appUpdatedAt = null;
     item.appSentAt = null;
+    item.appRepliedAt = null;
+    item.appTouredAt = null;
+    item.appRejectedAt = null;
+    item.appSkippedAt = null;
     recalculateCounts();
     render();
     toast("Listing reverted back to To Apply");
@@ -1245,10 +1398,7 @@ function bindControls() {
     const detailsEl = event.target.closest(".details-cell.expandable");
     if (detailsEl) {
       const item = listingById(detailsEl.dataset.id);
-      const full = (item?.details || "").trim();
-      const preview = detailsPreview(full);
-      const expanded = detailsEl.classList.toggle("expanded");
-      detailsEl.textContent = expanded ? full : preview;
+      renderDetailsCell(detailsEl, item, !detailsEl.classList.contains("expanded"));
       return;
     }
     const titleLink = event.target.closest(".title-cell a");
@@ -1331,7 +1481,7 @@ let scrapingPollInterval = null;
 
 async function checkScrapingStatus() {
   const base = apiBase();
-  if (!base || !state.apiOnline) return;
+  if (!base || !state.apiHasScrape) return;
   try {
     const res = await fetch(`${base}/api/scrape/status`);
     const json = await res.json();
@@ -1405,7 +1555,7 @@ function updateScrapeUI(isScraping, status, error) {
 
 async function triggerScrape() {
   const base = apiBase();
-  if (!base || !state.apiOnline) return;
+  if (!base || !state.apiHasScrape) return;
   try {
     const btn = document.getElementById("scrape-btn");
     if (btn) btn.disabled = true;
@@ -1438,7 +1588,7 @@ async function init() {
   const scrapeBtn = document.getElementById("scrape-btn");
   if (scrapeBtn) {
     scrapeBtn.addEventListener("click", triggerScrape);
-    if (state.apiOnline) {
+    if (state.apiHasScrape) {
       checkScrapingStatus();
     }
   }

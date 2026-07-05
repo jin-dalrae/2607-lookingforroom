@@ -22,7 +22,7 @@ from lfr.listings.dates import (
     posted_display_label,
     resolve_posted_at,
 )
-from lfr.listings.description import queue_display_details
+from lfr.listings.description import queue_display_details, raw_listing_description
 from lfr.listings.location import (
     extract_post_display_address,
     listing_location_context,
@@ -38,7 +38,8 @@ from send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "site" / "data.json"
 EXPORT_LIMIT = 500
-EXPORT_DESCRIPTION_MAX = 500
+EXPORT_DESCRIPTION_MAX = 8000
+EXPORT_DESCRIPTION_RAW_MAX = 12000
 
 
 def _gmail_compose_url(*, to: str, subject: str, body: str) -> str:
@@ -104,8 +105,11 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     sqft_label = extract_sqft_from_post(row)
     move_in_label = extract_move_in_label(row)
     description_text, details_pending = queue_display_details(row)
-    if len(description_text) > EXPORT_DESCRIPTION_MAX:
-        description_text = description_text[: EXPORT_DESCRIPTION_MAX - 1].rstrip() + "…"
+    if EXPORT_DESCRIPTION_MAX and len(description_text) > EXPORT_DESCRIPTION_MAX:
+        description_text = description_text[: EXPORT_DESCRIPTION_MAX].rstrip()
+    details_raw = raw_listing_description(row)
+    if EXPORT_DESCRIPTION_RAW_MAX and len(details_raw) > EXPORT_DESCRIPTION_RAW_MAX:
+        details_raw = details_raw[: EXPORT_DESCRIPTION_RAW_MAX].rstrip()
 
     posted_at = resolve_posted_at(row)
     scraped_at = row.get("last_seen")
@@ -156,6 +160,10 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "queueStatus": _queue_status(app_status),
         "appUpdatedAt": app.get("updated_at") if app else None,
         "appSentAt": app.get("sent_at") if app else None,
+        "appRepliedAt": app.get("replied_at") if app else None,
+        "appTouredAt": app.get("toured_at") if app else None,
+        "appRejectedAt": app.get("rejected_at") if app else None,
+        "appSkippedAt": app.get("skipped_at") if app else None,
         "notes": app_notes,
         "postedAt": posted_at,
         "postedLabel": posted_display_label(row),
@@ -168,6 +176,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "moveInSort": move_in_sort_value(move_in_label),
         "posterName": extract_poster_name(row),
         "details": description_text or None,
+        "detailsRaw": details_raw or None,
         "detailsPending": details_pending,
         "to": to_addr,
     }

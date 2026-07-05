@@ -7,7 +7,9 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
@@ -31,6 +33,7 @@ from gmail_creds import SETUP_INSTRUCTIONS, gmail_configured
 from gmail_draft import create_gmail_draft, format_result
 
 DEFAULT_PORT = 8787
+ROOT = Path(__file__).resolve().parent
 ID_RE = re.compile(r"^[A-Za-z0-9._-]+$")
 
 import threading
@@ -51,6 +54,18 @@ def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[s
     handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def _auto_deploy_after_scrape() -> None:
+    flag = os.getenv("SCRAPE_AUTO_DEPLOY", "").strip().lower()
+    if flag not in ("1", "true", "yes"):
+        return
+    script = ROOT / "scripts" / "deploy-pages.sh"
+    if not script.is_file():
+        print("[api] SCRAPE_AUTO_DEPLOY set but deploy-pages.sh missing", file=sys.stderr)
+        return
+    print("[api] Deploying updated listings to Cloudflare Pages…")
+    subprocess.run([str(script)], cwd=ROOT, check=True)
 
 
 def _auth_ok(handler: BaseHTTPRequestHandler) -> bool:
@@ -207,10 +222,10 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'toured', updated_at = ?
+                SET status = 'toured', toured_at = COALESCE(toured_at, ?), updated_at = ?
                 WHERE listing_id = ?
                 """,
-                (now, listing["id"]),
+                (now, now, listing["id"]),
             )
             conn.commit()
 
@@ -325,6 +340,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                 print("[api] Background scrape started…")
                 run_pipeline()
                 write_queue_data()
+                _auto_deploy_after_scrape()
                 print("[api] Background scrape finished and queue exported successfully!")
                 _last_scrape_status = "success"
             except Exception as exc:

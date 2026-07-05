@@ -248,14 +248,14 @@ def _extract_marketplace_body_text(page: Any, og_description: str) -> str:
             if loc.count():
                 text = loc.inner_text(timeout=3000).strip()
                 if len(text) >= 20:
-                    return text[:4000]
+                    return text[:8000]
         except Exception:
             continue
 
     if og_description and len(og_description) >= 20:
         low = og_description.lower()
         if "marketplace" not in low[:40] and "notification" not in low:
-            return og_description[:4000]
+            return og_description[:8000]
 
     try:
         text = page.evaluate(
@@ -267,7 +267,7 @@ def _extract_marketplace_body_text(page: Any, og_description: str) -> str:
               ]) {
                 for (const el of document.querySelectorAll(sel)) {
                   const t = (el.innerText || '').trim();
-                  if (t.length >= 20) return t.slice(0, 4000);
+                  if (t.length >= 20) return t.slice(0, 8000);
                 }
               }
               const body = (document.body && document.body.innerText) || '';
@@ -282,15 +282,15 @@ def _extract_marketplace_body_text(page: Any, og_description: str) -> str:
                 if (/^joined facebook/i.test(line)) break;
                 kept.push(line);
               }
-              return kept.join('\\n').slice(0, 4000);
+              return kept.join('\\n').slice(0, 8000);
             }"""
         )
         if text and len(str(text).strip()) >= 20:
-            return str(text).strip()[:4000]
+            return str(text).strip()[:8000]
     except Exception:
         pass
 
-    return (og_description or "")[:4000]
+    return (og_description or "")[:8000]
 
 
 def _extract_labeled_value_from_page(page: Any, labels: tuple[str, ...]) -> str:

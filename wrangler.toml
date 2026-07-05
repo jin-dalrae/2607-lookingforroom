@@ -1,3 +1,8 @@
 name = "2607-lookingforroom"
 compatibility_date = "2026-07-01"
 pages_build_output_dir = "site"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "lookingforroom-queue"
+database_id = "e8211e67-c80c-4116-8a56-4102e71d0eda"

@@ -127,10 +127,48 @@ def _init_applications_table(conn: sqlite3.Connection) -> None:
     migrations = {
         "channel": "TEXT",
         "sent_at": "TEXT",
+        "replied_at": "TEXT",
+        "toured_at": "TEXT",
+        "rejected_at": "TEXT",
+        "skipped_at": "TEXT",
     }
     for col, typedef in migrations.items():
         if col not in existing:
             conn.execute(f"ALTER TABLE applications ADD COLUMN {col} {typedef}")
+
+    _backfill_application_milestones(conn)
+
+
+def _backfill_application_milestones(conn: sqlite3.Connection) -> None:
+    """Seed milestone timestamps from legacy rows that only stored updated_at."""
+    conn.execute(
+        """
+        UPDATE applications
+        SET replied_at = updated_at
+        WHERE status = 'replied' AND replied_at IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE applications
+        SET toured_at = updated_at
+        WHERE status = 'toured' AND toured_at IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE applications
+        SET rejected_at = updated_at
+        WHERE status = 'rejected' AND rejected_at IS NULL
+        """
+    )
+    conn.execute(
+        """
+        UPDATE applications
+        SET skipped_at = updated_at
+        WHERE status = 'skipped' AND skipped_at IS NULL
+        """
+    )
 
 
 def init_db() -> None:

@@ -227,7 +227,12 @@ def get_pool_listings(
     exclude_short_term: bool = True,
 ) -> list[dict[str, Any]]:
     """Scored listings under budget (no move-in hard filter)."""
-    from lfr.pipeline.match import _flags_payload, price_within_budget, sort_matches
+    from lfr.pipeline.match import (
+        _flags_payload,
+        price_within_budget,
+        queue_excluded_move_in,
+        sort_matches,
+    )
 
     init_db()
     scam_clause = "AND s.is_scam_likely = 0" if exclude_scams else ""
@@ -287,6 +292,8 @@ def get_pool_listings(
         if "male_household_reject" in room_flags:
             continue
         if "stale_listing_reject" in room_flags:
+            continue
+        if queue_excluded_move_in(listing):
             continue
         results.append(listing)
 

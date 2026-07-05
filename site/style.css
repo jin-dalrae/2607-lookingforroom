@@ -241,8 +241,8 @@ tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 .details-col {
-  max-width: 20rem;
-  min-width: 12rem;
+  max-width: 28rem;
+  min-width: 14rem;
 }
 
 .details-cell {
@@ -263,7 +263,11 @@ tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 .details-cell.expanded {
   color: var(--text);
-  max-width: 34rem;
+  max-width: 42rem;
+}
+
+.details-cell.expanded .details-text {
+  white-space: pre-wrap;
 }
 
 .tag-poster {
@@ -299,6 +303,22 @@ tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .badge-gone { background: #fce8e6; color: #c5221f; }
 .badge-toured { background: #f3e8ff; color: var(--purple); }
 .badge-channel { background: #f0f0f2; color: var(--text); }
+
+.status-timeline {
+  display: block;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: normal;
+  font-weight: 500;
+  letter-spacing: 0;
+}
+
+.status-timeline-apply { color: var(--blue); }
+.status-timeline-sent { color: var(--blue); }
+.status-timeline-replied { color: var(--green); }
+.status-timeline-skipped { color: var(--muted); }
+.status-timeline-gone { color: #c5221f; }
+.status-timeline-toured { color: var(--purple); }
 
 .link-btn {
   display: inline-block;

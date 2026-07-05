@@ -7,7 +7,7 @@ from typing import Any
 
 from lfr.listings.location import strip_facebook_page_junk
 
-_DISPLAY_LIMIT = 2000
+_DISPLAY_LIMIT = 8000
 _PREVIEW_LIMIT = 180
 
 _JUNK_FB_TITLE_SET = frozenset(
@@ -59,6 +59,20 @@ def _normalize_text(text: str) -> str:
     lines = [re.sub(r"\s+", " ", line).strip() for line in text.split("\n")]
     lines = [line for line in lines if line]
     return "\n".join(lines).strip()
+
+
+def _strip_see_more(text: str) -> str:
+    return re.sub(r"(?:\n|\s)*see more\s*$", "", text, flags=re.IGNORECASE).strip()
+
+
+def raw_listing_description(row: dict[str, Any]) -> str:
+    """Return normalized DB description with minimal cleaning (for expand view)."""
+    raw = str(row.get("description") or "").strip()
+    if not raw:
+        return ""
+    if str(row.get("source") or "") != "facebook":
+        raw = _CL_POSTING_HEADER_RE.sub("", raw, count=1).strip()
+    return _normalize_text(raw)
 
 
 def _cut_at_markers(text: str, markers: tuple[str, ...]) -> str:
@@ -149,6 +163,7 @@ def extract_listing_description(row: dict[str, Any]) -> str:
         text = _CL_POSTING_HEADER_RE.sub("", raw, count=1).strip()
 
     text = _normalize_text(text)
+    text = _strip_see_more(text)
     if _is_junk_description(text):
         return ""
     return text[:_DISPLAY_LIMIT]

@@ -86,14 +86,14 @@ def _detect_rent_period(
 
     short_term_reject is True when the listing should be excluded from monthly rankings.
     """
+    if _MONTHLY_RENT_RE.search(text):
+        return "monthly", False
     if _WEEKLY_RENT_RE.search(text):
         return "weekly", True
     if _DAILY_RENT_RE.search(text):
         return "daily", True
     if _is_short_sublease(text, title=title):
         return "sublet", True
-    if _MONTHLY_RENT_RE.search(text):
-        return "monthly", False
 
     short_term_signal = bool(_SHORT_TERM_SIGNAL_RE.search(text))
     in_sf_oakland = _is_sf_oakland_area(text)

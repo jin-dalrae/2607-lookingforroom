@@ -393,7 +393,8 @@ RENT_PERIOD_VALUES = ("monthly", "weekly", "daily", "sublet", "unknown")
 _WEEKLY_RENT_RE = re.compile(
     r"(?:"
     r"\$\d+\s*/\s*(?:week|wk)\b"
-    r"|per\s+week\b"
+    r"|(?:rent|price|\$\d+)[^\n]{0,40}per\s+week\b"
+    r"|per\s+week\b[^\n]{0,40}(?:rent|room)"
     r"|/\s*week\b"
     r"|/\s*wk\b"
     r"|\bweekly\b"

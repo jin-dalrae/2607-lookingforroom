@@ -114,6 +114,31 @@ def get_application_status_map() -> dict[str, str]:
     return {str(row["listing_id"]): str(row["status"]) for row in rows}
 
 
+def get_application_milestones_map() -> dict[str, dict[str, str | None]]:
+    """Map listing_id → milestone timestamps for queue UI history."""
+    init_db()
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT listing_id, sent_at, replied_at, toured_at, rejected_at, skipped_at,
+                   updated_at
+            FROM applications
+            WHERE status != 'accepted'
+            """
+        ).fetchall()
+    milestones: dict[str, dict[str, str | None]] = {}
+    for row in rows:
+        milestones[str(row["listing_id"])] = {
+            "sentAt": row["sent_at"],
+            "repliedAt": row["replied_at"],
+            "touredAt": row["toured_at"],
+            "rejectedAt": row["rejected_at"],
+            "skippedAt": row["skipped_at"],
+            "updatedAt": row["updated_at"],
+        }
+    return milestones
+
+
 def get_application_stats() -> dict[str, int]:
     """Application counts by status plus unapplied ranked pool size."""
     init_db()
@@ -157,8 +182,8 @@ def mark_application_sent(
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'sent', channel = ?, sent_at = ?, updated_at = ?,
-                    notes = ?
+                SET status = 'sent', channel = ?, sent_at = COALESCE(sent_at, ?),
+                    updated_at = ?, notes = ?
                 WHERE listing_id = ?
                 """,
                 (channel, now, now, notes, listing_id),
@@ -167,7 +192,8 @@ def mark_application_sent(
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'sent', channel = ?, sent_at = ?, updated_at = ?
+                SET status = 'sent', channel = ?, sent_at = COALESCE(sent_at, ?),
+                    updated_at = ?
                 WHERE listing_id = ?
                 """,
                 (channel, now, now, listing_id),
@@ -200,19 +226,21 @@ def mark_application_skipped(
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'skipped', notes = ?, updated_at = ?
+                SET status = 'skipped', skipped_at = COALESCE(skipped_at, ?),
+                    notes = ?, updated_at = ?
                 WHERE listing_id = ?
                 """,
-                (notes, now, listing_id),
+                (now, notes, now, listing_id),
             )
         else:
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'skipped', updated_at = ?
+                SET status = 'skipped', skipped_at = COALESCE(skipped_at, ?),
+                    updated_at = ?
                 WHERE listing_id = ?
                 """,
-                (now, listing_id),
+                (now, now, listing_id),
             )
         conn.commit()
     return get_application_by_listing_id(listing_id)
@@ -242,10 +270,11 @@ def mark_application_rejected(
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'rejected', notes = COALESCE(?, notes), updated_at = ?
+                SET status = 'rejected', rejected_at = COALESCE(rejected_at, ?),
+                    notes = COALESCE(?, notes), updated_at = ?
                 WHERE listing_id = ?
                 """,
-                (notes, now, listing_id),
+                (now, notes, now, listing_id),
             )
         conn.commit()
     return get_application_by_listing_id(listing_id)
@@ -573,19 +602,21 @@ def mark_application_replied(
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'replied', notes = ?, updated_at = ?
+                SET status = 'replied', replied_at = COALESCE(replied_at, ?),
+                    notes = ?, updated_at = ?
                 WHERE listing_id = ?
                 """,
-                (combined_notes, now, listing_id),
+                (now, combined_notes, now, listing_id),
             )
         else:
             conn.execute(
                 """
                 UPDATE applications
-                SET status = 'replied', updated_at = ?
+                SET status = 'replied', replied_at = COALESCE(replied_at, ?),
+                    updated_at = ?
                 WHERE listing_id = ?
                 """,
-                (now, listing_id),
+                (now, now, listing_id),
             )
         conn.commit()
     return get_application_by_listing_id(listing_id)

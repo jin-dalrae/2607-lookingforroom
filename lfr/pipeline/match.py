@@ -54,6 +54,36 @@ def move_in_fits_window(row: dict[str, Any]) -> bool:
     return fit in MOVE_IN_FITS_OK
 
 
+def queue_excluded_move_in(row: dict[str, Any]) -> bool:
+    """True when a listing should not appear in the apply-queue candidate pool."""
+    payload = _flags_payload(row.get("flags_json"))
+    fit = str(payload.get("move_in_fit") or "")
+    if fit in ("too_late", "too_early"):
+        return True
+
+    room_flags = payload.get("flags") or []
+    if not isinstance(room_flags, list):
+        room_flags = [str(room_flags)]
+    if "move_in_late_reject" in room_flags or "move_in_too_late" in room_flags:
+        return True
+
+    if listing_has_move_in_after_cutoff(row):
+        return True
+
+    move_in = str(row.get("move_in_date") or "").strip()
+    if move_in:
+        try:
+            from datetime import date
+
+            parsed = date.fromisoformat(move_in[:10])
+            if parsed > SEARCH_CRITERIA["move_in_end"]:
+                return True
+        except ValueError:
+            pass
+
+    return False
+
+
 def listing_matches_criteria(
     row: dict[str, Any],
     *,
