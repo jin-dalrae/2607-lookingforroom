@@ -76,6 +76,32 @@ def _transit_tag(flags_json: str | None, reasoning: str) -> str | None:
     return None
 
 
+def _ever_applied(item: dict[str, Any]) -> bool:
+    """True when a listing was sent at least once (for cumulative Applied stat)."""
+    if item.get("appSentAt"):
+        return True
+    app_status = item.get("appStatus")
+    return app_status in ("sent", "toured", "replied")
+
+
+def _ever_replied(item: dict[str, Any]) -> bool:
+    if item.get("appRepliedAt"):
+        return True
+    return item.get("appStatus") == "replied"
+
+
+def _ever_skipped(item: dict[str, Any]) -> bool:
+    if item.get("appSkippedAt"):
+        return True
+    return item.get("appStatus") == "skipped"
+
+
+def _ever_gone(item: dict[str, Any]) -> bool:
+    if item.get("appRejectedAt"):
+        return True
+    return item.get("appStatus") == "rejected"
+
+
 def _queue_status(app_status: str | None) -> str:
     if app_status in (None, "draft"):
         return "to_apply"
@@ -182,32 +208,121 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     }
 
 
+_STREET_ADDRESS_RE = re.compile(
+    r"\b(\d{1,5})\s+[\w'.-]+(?:\s+[\w'.-]+){0,4}\s+"
+    r"(?:st|street|str|ave|avenue|av|rd|road|blvd|boulevard|dr|drive|ln|lane|way|ct|court|pl|place|pkwy|parkway|ter|terrace|cir|circle|hwy)\b",
+    re.IGNORECASE,
+)
+
+_GENERIC_ADDRESS_LABELS = frozenset(
+    {
+        "san francisco",
+        "sf",
+        "san francisco ca",
+        "sf ca",
+        "oakland",
+        "oakland ca",
+        "west oakland",
+        "downtown oakland",
+        "emeryville",
+        "emeryville ca",
+        "south san francisco",
+        "south sf",
+        "south san francisco ca",
+        "south sf ca",
+        "ssf",
+        "ssf ca",
+        "california",
+        "ca",
+        "united states",
+        "usa",
+        "unknown",
+        "unknown area",
+    }
+)
+
+_DESCRIPTION_STOPWORDS = frozenset(
+    {
+        "about",
+        "apartment",
+        "available",
+        "bathroom",
+        "bedroom",
+        "clean",
+        "closet",
+        "close",
+        "deposit",
+        "drugs",
+        "garbage",
+        "house",
+        "included",
+        "interested",
+        "kitchen",
+        "laundry",
+        "looking",
+        "month",
+        "neighborhood",
+        "overnight",
+        "person",
+        "persons",
+        "please",
+        "posted",
+        "private",
+        "quiet",
+        "rent",
+        "room",
+        "schedule",
+        "security",
+        "shared",
+        "smoking",
+        "space",
+        "station",
+        "tenant",
+        "tenants",
+        "utilities",
+        "walking",
+    }
+)
+
+
 def _is_specific_street_address(address: str) -> bool:
     if not address:
         return False
-    clean = re.sub(r"[^\w\s]", " ", address.lower()).strip()
-    generic_words = {
-        "san francisco", "sf", "san francisco ca", "sf ca",
-        "oakland", "oakland ca", "west oakland", "downtown oakland",
-        "emeryville", "emeryville ca", "south san francisco", "south sf",
-        "south san francisco ca", "south sf ca", "ssf", "ssf ca",
-        "california", "ca", "united states", "usa", "unknown", "unknown area"
-    }
-    if clean in generic_words:
+    raw = address.strip()
+    low = re.sub(r"\s+", " ", raw.lower())
+    if low in _GENERIC_ADDRESS_LABELS:
         return False
-    if len(clean) < 10:
+    if "/" in raw:
         return False
-    if not any(char.isdigit() for char in clean):
-        if " and " not in clean and " & " not in clean:
-            return False
-    return True
+    if re.fullmatch(r"(?:san francisco|oakland|emeryville|south san francisco)(?:,\s*ca)?(?:,\s*\d{5})?", low):
+        return False
+    if re.fullmatch(r"(?:san francisco|oakland|emeryville|south san francisco),\s*ca,\s*\d{5}", low):
+        return False
+    return bool(_STREET_ADDRESS_RE.search(raw))
 
 
-def _normalize_title_words(title: str) -> set[str]:
-    cleaned = re.sub(r"[^\w\s]", " ", title.lower())
-    words = {w for w in cleaned.split() if len(w) > 3}
-    exclude = {"room", "rent", "private", "bedroom", "apartment", "house", "for rent", "available", "shared"}
-    return words - exclude
+def _address_group_key(address: str) -> str | None:
+    if not _is_specific_street_address(address):
+        return None
+    match = _STREET_ADDRESS_RE.search(address)
+    if not match:
+        return None
+    start = match.start()
+    segment = address[start:]
+    segment = segment.split(",", 1)[0]
+    segment = re.sub(r"\s*#\s*\w+$", "", segment, flags=re.IGNORECASE)
+    segment = re.sub(r"\s+(?:apt|apartment|unit|ste|suite)\s*[#.]?\s*\w+$", "", segment, flags=re.IGNORECASE)
+    key = re.sub(r"[^\w\s]", " ", segment.lower())
+    key = re.sub(r"\s+", " ", key).strip()
+    return key or None
+
+
+def _listing_address_key(item: dict[str, Any]) -> str | None:
+    for field in ("rentalAddress", "displayAddress"):
+        key = _address_group_key(str(item.get(field) or ""))
+        if key:
+            return key
+    return None
 
 
 def _normalize_description_words(desc: str) -> set[str]:
@@ -215,68 +330,123 @@ def _normalize_description_words(desc: str) -> set[str]:
         return set()
     cleaned = re.sub(r"[^\w\s]", " ", desc.lower())
     words = {w for w in cleaned.split() if len(w) > 4}
-    exclude = {
-        "room", "rent", "private", "bedroom", "apartment", "house", "available", "shared",
-        "kitchen", "bathroom", "utilities", "included", "laundry", "closet"
-    }
-    return words - exclude
+    return words - _DESCRIPTION_STOPWORDS
+
+
+def _same_area_label(item: dict[str, Any]) -> str:
+    return (item.get("displayAddress") or item.get("neighborhood") or "").strip().lower()
+
+
+def _description_similarity(item_a: dict[str, Any], item_b: dict[str, Any]) -> tuple[int, float]:
+    desc_a = (item_a.get("details") or "").strip()
+    desc_b = (item_b.get("details") or "").strip()
+    if not desc_a or not desc_b:
+        return 0, 0.0
+    if desc_a == desc_b:
+        return max(len(_normalize_description_words(desc_a)), 1), 1.0
+    words_a = _normalize_description_words(desc_a)
+    words_b = _normalize_description_words(desc_b)
+    if not words_a or not words_b:
+        return 0, 0.0
+    shared = words_a & words_b
+    union = words_a | words_b
+    return len(shared), len(shared) / len(union)
+
+
+def _description_duplicate_match(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
+    desc_a = (item_a.get("details") or "").strip()
+    desc_b = (item_b.get("details") or "").strip()
+    if len(desc_a) < 80 or len(desc_b) < 80:
+        return False
+    if item_a.get("price") != item_b.get("price") or item_a.get("price") is None:
+        return False
+    area_a = _same_area_label(item_a)
+    area_b = _same_area_label(item_b)
+    if not area_a or area_a != area_b:
+        return False
+
+    shared_count, jaccard = _description_similarity(item_a, item_b)
+    if jaccard >= 0.95 and shared_count >= 8:
+        return True
+    if jaccard >= 0.88 and shared_count >= 12:
+        return True
+    return False
+
+
+def _same_house_pair(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
+    addr_a = _listing_address_key(item_a)
+    addr_b = _listing_address_key(item_b)
+    if addr_a and addr_b and addr_a == addr_b:
+        return True
+    return _description_duplicate_match(item_a, item_b)
+
+
+def _group_members_cohesive(members: list[dict[str, Any]]) -> bool:
+    if len(members) <= 1:
+        return False
+    addr_keys = [_listing_address_key(item) for item in members]
+    specific_keys = [key for key in addr_keys if key]
+    if specific_keys and len(set(specific_keys)) == 1:
+        return True
+    if len(members) > 4:
+        return False
+    for i in range(len(members)):
+        for j in range(i + 1, len(members)):
+            if not _same_house_pair(members[i], members[j]):
+                return False
+    return True
 
 
 def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     parent = {item["id"]: item["id"] for item in listings}
 
-    def find(i):
-        path = []
-        while parent[i] != i:
-            path.append(i)
-            i = parent[i]
+    def find(listing_id: str) -> str:
+        path: list[str] = []
+        current = listing_id
+        while parent[current] != current:
+            path.append(current)
+            current = parent[current]
         for node in path:
-            parent[node] = i
-        return i
+            parent[node] = current
+        return current
 
-    def union(i, j):
-        root_i = find(i)
-        root_j = find(j)
-        if root_i != root_j:
-            parent[root_i] = root_j
+    def union(left_id: str, right_id: str) -> None:
+        root_left = find(left_id)
+        root_right = find(right_id)
+        if root_left != root_right:
+            parent[root_left] = root_right
 
-    n = len(listings)
-    for i in range(n):
+    for i in range(len(listings)):
         item_i = listings[i]
-        desc_i = (item_i.get("details") or "").strip()
-        words_desc_i = _normalize_description_words(desc_i)
+        for j in range(i + 1, len(listings)):
+            if _same_house_pair(item_i, listings[j]):
+                union(item_i["id"], listings[j]["id"])
 
-        for j in range(i + 1, n):
-            item_j = listings[j]
-            desc_j = (item_j.get("details") or "").strip()
-
-            is_match = False
-
-            if words_desc_i and len(desc_j) > 40:
-                words_desc_j = _normalize_description_words(desc_j)
-                shared_desc = words_desc_i & words_desc_j
-                if len(shared_desc) >= 12 or (len(shared_desc) / max(len(words_desc_i), len(words_desc_j)) >= 0.6):
-                    is_match = True
-
-            if is_match:
-                union(item_i["id"], item_j["id"])
-
-    group_map: dict[str, list[dict[str, Any]]] = {}
+    provisional: dict[str, list[dict[str, Any]]] = {}
     for item in listings:
         root_id = find(item["id"])
+        provisional.setdefault(root_id, []).append(item)
+
+    group_map: dict[str, list[dict[str, Any]]] = {}
+    for root_id, members in provisional.items():
+        if not _group_members_cohesive(members):
+            for member in members:
+                group_map[member["id"]] = [member]
+            continue
+        group_map[root_id] = members
+
+    for item in listings:
+        members = group_map.get(item["id"])
+        if members is None:
+            members = group_map.get(find(item["id"]))
+        if members is None:
+            members = [item]
+        root_id = members[0]["id"] if len(members) == 1 else find(item["id"])
         item["groupId"] = root_id
-        group_map.setdefault(root_id, []).append(item)
-
-    for root_id, members in group_map.items():
-        max_score = max((item.get("score") or 0) for item in members)
-        min_price = min((item.get("price") or 99999) for item in members)
-        is_grouped = len(members) > 1
-
-        for item in members:
-            item["groupMaxScore"] = max_score
-            item["groupMinPrice"] = min_price
-            item["isGrouped"] = is_grouped
-            item["duplicateCount"] = len(members) - 1
+        item["groupMaxScore"] = max((member.get("score") or 0) for member in members)
+        item["groupMinPrice"] = min((member.get("price") or 99999) for member in members)
+        item["isGrouped"] = len(members) > 1
+        item["duplicateCount"] = len(members) - 1
 
     return listings
 
@@ -291,10 +461,10 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
     listings = group_similar_listings(listings)
     counts = {
         "toApply": sum(1 for item in listings if item["queueStatus"] == "to_apply"),
-        "applied": sum(1 for item in listings if item["queueStatus"] == "applied"),
-        "replied": sum(1 for item in listings if item["queueStatus"] == "replied"),
-        "skipped": sum(1 for item in listings if item["queueStatus"] == "skipped"),
-        "gone": sum(1 for item in listings if item["queueStatus"] == "gone"),
+        "applied": sum(1 for item in listings if _ever_applied(item)),
+        "replied": sum(1 for item in listings if _ever_replied(item)),
+        "skipped": sum(1 for item in listings if _ever_skipped(item)),
+        "gone": sum(1 for item in listings if _ever_gone(item)),
         "moveInWindow": sum(1 for item in listings if item["isMatch"]),
         "liked": sum(1 for item in listings if item.get("liked")),
         "pendingScore": sum(1 for item in listings if item.get("scorePending")),

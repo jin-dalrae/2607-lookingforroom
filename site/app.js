@@ -165,6 +165,27 @@ function saveLocalSkips(ids) {
   localStorage.setItem(SKIPPED_STORAGE_KEY, JSON.stringify([...ids]));
 }
 
+function hasEverApplied(item) {
+  if (item?.appSentAt) return true;
+  const status = item?.appStatus;
+  return status === "sent" || status === "toured" || status === "replied";
+}
+
+function hasEverReplied(item) {
+  if (item?.appRepliedAt) return true;
+  return item?.appStatus === "replied";
+}
+
+function hasEverSkipped(item) {
+  if (item?.appSkippedAt) return true;
+  return item?.appStatus === "skipped";
+}
+
+function hasEverGone(item) {
+  if (item?.appRejectedAt) return true;
+  return item?.appStatus === "rejected";
+}
+
 function queueStatusFromApp(appStatus) {
   if (!appStatus || appStatus === "draft") return "to_apply";
   if (appStatus === "skipped") return "skipped";
@@ -246,11 +267,11 @@ function recalculateCounts() {
     total: state.data.listings.length,
   };
   for (const item of state.data.listings) {
+    if (hasEverApplied(item)) counts.applied += 1;
+    if (hasEverReplied(item)) counts.replied += 1;
+    if (hasEverSkipped(item)) counts.skipped += 1;
+    if (hasEverGone(item)) counts.gone += 1;
     if (item.queueStatus === "to_apply") counts.toApply += 1;
-    else if (item.queueStatus === "applied") counts.applied += 1;
-    else if (item.queueStatus === "replied") counts.replied += 1;
-    else if (item.queueStatus === "skipped") counts.skipped += 1;
-    else if (item.queueStatus === "gone") counts.gone += 1;
   }
   state.data.counts = { ...state.data.counts, ...counts };
 }
