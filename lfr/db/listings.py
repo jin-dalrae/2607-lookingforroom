@@ -35,6 +35,16 @@ def upsert_listing(
     """
     now = _utcnow()
     existing = get_listing_by_url(url)
+    if existing is None and listing_id:
+        existing_by_id = get_listing_by_id(listing_id)
+        if existing_by_id is not None:
+            with get_connection() as conn:
+                conn.execute(
+                    "UPDATE listings SET url = ? WHERE id = ?",
+                    (url, listing_id),
+                )
+                conn.commit()
+            existing = {**existing_by_id, "url": url}
 
     def _resolved_move_in_date(row: dict[str, Any]) -> str:
         from lfr.listings.move_in import resolve_move_in_date_storage

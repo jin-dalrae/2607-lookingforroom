@@ -171,9 +171,16 @@ function hasEverApplied(item) {
   return status === "sent" || status === "toured" || status === "replied";
 }
 
+function memoMarksSpamReply(notes) {
+  const memo = String(notes || "").trim().toLowerCase();
+  return memo.includes("spam") || memo.includes("scam");
+}
+
 function hasEverReplied(item) {
   if (item?.appRepliedAt) return true;
-  return item?.appStatus === "replied";
+  if (item?.appStatus === "replied") return true;
+  if (!hasEverGone(item)) return false;
+  return memoMarksSpamReply(item?.notes);
 }
 
 function hasEverSkipped(item) {

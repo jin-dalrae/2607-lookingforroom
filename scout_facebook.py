@@ -17,9 +17,14 @@ from facebook_session import login_instructions, run_interactive_login, session_
 
 ITEM_ID_RE = re.compile(r"/marketplace/item/(\d+)")
 PRICE_RE = re.compile(r"\$\s*([\d,]+)")
+MONTHLY_PRICE_RE = re.compile(
+    r"\$\s*([\d,]+)\s*(?:/\s*month|/mo\b|per\s+month)",
+    re.IGNORECASE,
+)
+TOTAL_RENT_RE = re.compile(r"total\s+of\s+\$\s*([\d,]+)", re.IGNORECASE)
 DETAIL_DELAY_SEC = 0.8
 DETAIL_PAGE_TIMEOUT_MS = 25_000
-DETAIL_SETTLE_MS = 800
+DETAIL_SETTLE_MS = 1500
 SEARCH_SCROLLS = 10
 SEARCH_SCROLL_PAUSE_MS = 1200
 JUNK_TITLES = frozenset(
@@ -90,6 +95,84 @@ def _parse_price(text: str) -> int | None:
     if value > cap:
         return value
     return value
+
+
+def _parse_best_rent_price(text: str) -> int | None:
+    """Pick the monthly rent when a blob mentions add-ons like '$150 for a total of $1400'."""
+    blob = text or ""
+    if not blob.strip():
+        return None
+
+    monthly = MONTHLY_PRICE_RE.search(blob)
+    if monthly:
+        try:
+            return int(monthly.group(1).replace(",", ""))
+        except ValueError:
+            pass
+
+    total = TOTAL_RENT_RE.search(blob)
+    if total:
+        try:
+            return int(total.group(1).replace(",", ""))
+        except ValueError:
+            pass
+
+    amounts: list[int] = []
+    for match in PRICE_RE.finditer(blob):
+        try:
+            amounts.append(int(match.group(1).replace(",", "")))
+        except ValueError:
+            continue
+    if not amounts:
+        return None
+
+    max_rent = SEARCH_CRITERIA.get("max_rent", 1300)
+    rent_like = [value for value in amounts if 500 <= value <= max_rent * 2]
+    if rent_like:
+        return max(rent_like)
+    small_addon = [value for value in amounts if value < 500]
+    if len(amounts) > len(small_addon) and small_addon:
+        remaining = [value for value in amounts if value not in small_addon]
+        if remaining:
+            return max(remaining)
+    return amounts[0]
+
+
+def _expand_marketplace_see_more(page: Any) -> None:
+    try:
+        page.evaluate(
+            """() => {
+              const body = (document.body && document.body.innerText) || '';
+              const descIdx = body.search(/\\bDescription\\b/i);
+              for (const el of document.querySelectorAll('span, div, a, button')) {
+                const label = (el.innerText || '').trim().toLowerCase();
+                if (label !== 'see more') continue;
+                if (descIdx !== -1) {
+                  const marker = (el.innerText || '').trim();
+                  const pos = body.indexOf(marker, descIdx);
+                  if (pos === -1 || pos < descIdx) continue;
+                }
+                try { el.click(); } catch (_) {}
+              }
+            }"""
+        )
+        page.wait_for_timeout(400)
+    except Exception:
+        pass
+
+
+def _extract_pdp_monthly_price(page: Any) -> int | None:
+    try:
+        snippet = page.evaluate(
+            """() => {
+              const body = (document.body && document.body.innerText) || '';
+              const match = body.match(/\\$[\\d,]+\\s*\\/\\s*Month/i);
+              return match ? match[0] : '';
+            }"""
+        )
+    except Exception:
+        return None
+    return _parse_best_rent_price(str(snippet or ""))
 
 
 def _is_junk_title(title: str) -> bool:
@@ -254,13 +337,19 @@ def _extract_marketplace_body_text(page: Any, og_description: str) -> str:
 
     if og_description and len(og_description) >= 20:
         low = og_description.lower()
-        if "marketplace" not in low[:40] and "notification" not in low:
+        trimmed = og_description.strip()
+        looks_truncated = trimmed.endswith("...") or trimmed.endswith("…")
+        if (
+            not looks_truncated
+            and "marketplace" not in low[:40]
+            and "notification" not in low
+        ):
             return og_description[:8000]
 
     try:
         text = page.evaluate(
             """() => {
-              const stop = /seller information|today's picks|send seller a message|marketplace access|browse all/i;
+              const stop = /seller information|today's picks|send seller a message|marketplace access|browse all|report this listing/i;
               for (const sel of [
                 '[data-testid="marketplace-pdp-description"]',
                 '[data-testid="marketplace-pdp-listing-description"]',
@@ -271,6 +360,14 @@ def _extract_marketplace_body_text(page: Any, og_description: str) -> str:
                 }
               }
               const body = (document.body && document.body.innerText) || '';
+              const descIdx = body.search(/\\nDescription\\n/i);
+              if (descIdx !== -1) {
+                let chunk = body.slice(descIdx).replace(/^\\nDescription\\n/i, '');
+                const cut = chunk.search(stop);
+                if (cut > 80) chunk = chunk.slice(0, cut);
+                chunk = chunk.trim();
+                if (chunk.length >= 20) return chunk.slice(0, 8000);
+              }
               const cut = body.search(stop);
               const head = cut > 80 ? body.slice(0, cut) : body;
               const lines = head.split('\\n').map((l) => l.trim()).filter(Boolean);
@@ -286,7 +383,24 @@ def _extract_marketplace_body_text(page: Any, og_description: str) -> str:
             }"""
         )
         if text and len(str(text).strip()) >= 20:
-            return str(text).strip()[:8000]
+            cleaned = str(text).strip()[:8000]
+            if len(cleaned) < 280:
+                _expand_marketplace_see_more(page)
+                retry = page.evaluate(
+                    """() => {
+                      const stop = /seller information|today's picks|send seller a message|report this listing/i;
+                      const body = (document.body && document.body.innerText) || '';
+                      const descIdx = body.search(/\\nDescription\\n/i);
+                      if (descIdx === -1) return '';
+                      let chunk = body.slice(descIdx).replace(/^\\nDescription\\n/i, '');
+                      const cut = chunk.search(stop);
+                      if (cut > 80) chunk = chunk.slice(0, cut);
+                      return chunk.trim().slice(0, 8000);
+                    }"""
+                )
+                if retry and len(str(retry).strip()) > len(cleaned):
+                    return str(retry).strip()[:8000]
+            return cleaned
     except Exception:
         pass
 
@@ -420,8 +534,19 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         resolve_neighborhood_from_text,
     )
 
+    price = (
+        _extract_pdp_monthly_price(page)
+        or _parse_best_rent_price(description)
+        or _parse_best_rent_price(title)
+    )
     body_text = _extract_marketplace_body_text(page, description)
-    price = _parse_price(body_text) or _parse_price(title) or _parse_price(description)
+    if price is None:
+        price = (
+            _parse_best_rent_price(body_text)
+            or _parse_price(body_text)
+            or _parse_price(title)
+            or _parse_price(description)
+        )
     page_rental_location = _extract_rental_location_from_page(page)
     page_move_in = _extract_move_in_from_page(page)
 

@@ -30,7 +30,7 @@ from config import (
     SOMA_CRAIGSLIST_URL,
     WEST_OAKLAND_CRAIGSLIST_URL,
 )
-from db import init_db, upsert_listing
+from db import get_listing_by_url, init_db, upsert_listing
 
 SEARCH_URLS = [
     ("San Francisco", CRAIGSLIST_URL),
@@ -223,20 +223,27 @@ def run_poll_cycle() -> dict[str, int]:
     counts = {"new": 0, "updated": 0, "unchanged": 0, "errors": 0}
 
     for index, card in enumerate(cards, start=1):
-        if index > 1:
-            time.sleep(DETAIL_DELAY_SEC)
-
-        post_id, description, posted_at = fetch_listing_details(session, card.url)
-        listing_id = post_id or card.post_id
-
         try:
+            existing = get_listing_by_url(card.url)
+            needs_details = existing is None or not existing.get("description")
+
+            if needs_details:
+                if index > 1:
+                    time.sleep(DETAIL_DELAY_SEC)
+                post_id, description, posted_at = fetch_listing_details(session, card.url)
+                listing_id = post_id or card.post_id
+            else:
+                listing_id = existing["id"]
+                description = None
+                posted_at = None
+
             outcome = upsert_listing(
                 listing_id=listing_id,
                 url=card.url,
                 title=card.title,
                 price=card.price,
                 neighborhood=card.neighborhood,
-                description=description or None,
+                description=description,
                 posted_at=posted_at,
                 source="craigslist",
             )

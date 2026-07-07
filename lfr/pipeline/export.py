@@ -84,10 +84,19 @@ def _ever_applied(item: dict[str, Any]) -> bool:
     return app_status in ("sent", "toured", "replied")
 
 
+def _memo_marks_spam_reply(notes: str | None) -> bool:
+    memo = (notes or "").strip().lower()
+    return "spam" in memo or "scam" in memo
+
+
 def _ever_replied(item: dict[str, Any]) -> bool:
     if item.get("appRepliedAt"):
         return True
-    return item.get("appStatus") == "replied"
+    if item.get("appStatus") == "replied":
+        return True
+    if not _ever_gone(item):
+        return False
+    return _memo_marks_spam_reply(item.get("notes"))
 
 
 def _ever_skipped(item: dict[str, Any]) -> bool:
