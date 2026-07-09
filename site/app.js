@@ -604,8 +604,10 @@ function statusMeta(item) {
 }
 
 function sourceLabel(item) {
-  if (item.isFacebook) return "📘 Facebook";
-  return "Craigslist";
+  if (item.source === "facebook") return "📘 Facebook";
+  if (item.source === "zillow") return "💚 Zillow";
+  if (item.source === "craigslist") return "Craigslist";
+  return item.source || "Craigslist";
 }
 
 function isSearching() {
@@ -649,8 +651,7 @@ function passesFilters(item) {
 
   if (state.likedOnly && !item.liked) return false;
   if (state.memoOnly && !item.notes) return false;
-  if (state.source === "facebook" && !item.isFacebook) return false;
-  if (state.source === "craigslist" && item.isFacebook) return false;
+  if (state.source !== "all" && item.source !== state.source) return false;
   const maxPrice = state.maxPrice === "" ? null : Number(state.maxPrice);
   if (maxPrice !== null && Number.isFinite(maxPrice)) {
     const price = Number(item.price);

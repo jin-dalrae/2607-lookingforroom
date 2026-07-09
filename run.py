@@ -25,7 +25,7 @@ import outreach
 import notify
 
 
-STAGES = ("scout", "facebook", "filter", "rank", "outreach")
+STAGES = ("scout", "facebook", "zillow", "filter", "rank", "outreach")
 
 
 def run_pipeline(stages: tuple[str, ...] = STAGES) -> dict[str, int]:
@@ -63,6 +63,21 @@ def run_pipeline(stages: tuple[str, ...] = STAGES) -> dict[str, int]:
             print(f"  warning: Facebook scout failed: {exc}", file=sys.stderr)
             results["facebook"] = 0
 
+    if "zillow" in stages:
+        print("▶ Zillow: polling rentals…")
+        try:
+            import scout_zillow
+
+            zillow_counts = scout_zillow.run_poll_cycle()
+            results["zillow"] = zillow_counts.get("new", 0)
+            print(
+                f"  → {results['zillow']} new, "
+                f"{zillow_counts.get('updated', 0)} updated"
+            )
+        except Exception as exc:
+            print(f"  warning: Zillow scout failed: {exc}", file=sys.stderr)
+            results["zillow"] = 0
+
     if "filter" in stages:
         print("▶ Tag: move-in + room-type tags (filter.py)…")
         results["filter"] = listing_filter.run()
@@ -94,7 +109,8 @@ def print_top_listings(n: int = 5) -> None:
         price = listing.get("price")
         price_str = f"${price}" if price else "price n/a"
         reasoning = (listing.get("reasoning") or "")[:80]
-        source_tag = " 📘" if (listing.get("source") or "") == "facebook" else ""
+        src = (listing.get("source") or "").lower()
+        source_tag = " 📘" if src == "facebook" else (" 💚" if src == "zillow" else "")
         print(f"\n{i}. {listing.get('title', 'Untitled')}{source_tag}")
         print(f"   {price_str} · {listing.get('neighborhood', 'SF')}")
         if reasoning:
@@ -113,9 +129,17 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--facebook-only", action="store_true", help="Run Facebook Marketplace scout only"
     )
     parser.add_argument(
+        "--zillow-only", action="store_true", help="Run Zillow rentals scout only"
+    )
+    parser.add_argument(
         "--with-facebook",
         action="store_true",
         help="Include Facebook Marketplace after Craigslist scout",
+    )
+    parser.add_argument(
+        "--with-zillow",
+        action="store_true",
+        help="Include Zillow rentals after Craigslist scout",
     )
     parser.add_argument(
         "--filter-only", action="store_true", help="Run filter stage only"
@@ -150,6 +174,7 @@ def _resolve_stages(args: argparse.Namespace) -> tuple[str, ...]:
     only_flags = {
         "scout": args.scout_only,
         "facebook": args.facebook_only,
+        "zillow": args.zillow_only,
         "filter": args.filter_only,
         "rank": args.rank_only,
         "outreach": args.outreach_only,
@@ -157,6 +182,16 @@ def _resolve_stages(args: argparse.Namespace) -> tuple[str, ...]:
     selected = [s for s, flag in only_flags.items() if flag]
     if selected:
         return tuple(selected)
+
+    if args.with_facebook or args.with_zillow:
+        stages = ["scout"]
+        if args.with_facebook:
+            stages.append("facebook")
+        if args.with_zillow:
+            stages.append("zillow")
+        stages.extend(["filter", "rank", "outreach"])
+        return tuple(stages)
+
     return STAGES
 
 

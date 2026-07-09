@@ -194,6 +194,12 @@ FACEBOOK_MARKETPLACE_SEARCHES = (
     ("South SF room", _fb_sf("south san francisco room")),
 )
 
+# --- Zillow (requires Playwright) ---
+ZILLOW_SEARCHES = (
+    ("SF Rentals under 1300", "https://www.zillow.com/san-francisco-ca/rentals/?searchQueryState=%7B%22pagination%22%3A%7B%7D%2C%22mapBounds%22%3A%7B%22west%22%3A-122.53%2C%22east%22%3A-122.35%2C%22south%22%3A37.7%2C%22north%22%3A37.83%7D%2C%22regionSelection%22%3A%5B%7B%22regionId%22%3A20330%2C%22regionType%22%3A6%7D%5D%2C%22filterState%22%3A%7B%22fr%22%3A%7B%22value%22%3Atrue%7D%2C%22mp%22%3A%7B%22max%22%3A1300%7D%7D%7D"),
+    ("Oakland Rentals under 1300", "https://www.zillow.com/oakland-ca/rentals/?searchQueryState=%7B%22pagination%22%3A%7B%7D%2C%22mapBounds%22%3A%7B%22west%22%3A-122.35%2C%22east%22%3A-122.11%2C%22south%22%3A37.63%2C%22north%22%3A37.88%7D%2C%22regionSelection%22%3A%5B%7B%22regionId%22%3A13007%2C%22regionType%22%3A6%7D%5D%2C%22filterState%22%3A%7B%22fr%22%3A%7B%22value%22%3Atrue%7D%2C%22mp%22%3A%7B%22max%22%3A1300%7D%7D%7D"),
+)
+
 # --- Polling ---
 POLL_INTERVAL_HOURS = 6
 
