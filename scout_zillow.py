@@ -44,6 +44,10 @@ def _extract_id_from_url(url: str) -> str:
     h = hashlib.md5(url.encode('utf-8')).hexdigest()[:12]
     return f"z-{h}"
 
+def is_interactive() -> bool:
+    return sys.stdin and sys.stdin.isatty()
+
+
 def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
     print(f"Polling Zillow search: {search_name}...")
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
@@ -51,6 +55,10 @@ def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
     print(f"Page title: {title}")
     
     if "denied" in title.lower() or "human" in title.lower() or "robot" in title.lower() or "security" in title.lower():
+        if not is_interactive():
+            print("[zillow] Security block detected in background/automated run. Skipping Zillow to prevent hang.")
+            return []
+
         print("\n" + "="*70)
         print(" [ACTION REQUIRED] Zillow's security screen has been triggered!")
         print(" Please click and hold on the verification button in the browser window.")
@@ -140,9 +148,13 @@ def run_poll_cycle() -> dict[str, int]:
     init_db()
     counts = {"new": 0, "updated": 0, "unchanged": 0}
     
+    headless_mode = not is_interactive()
+    if headless_mode:
+        print("[zillow] Non-interactive environment detected. Running headless, skips if blocked.")
+
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=False,
+            headless=headless_mode,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox"
