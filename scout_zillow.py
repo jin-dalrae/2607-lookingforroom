@@ -83,6 +83,10 @@ def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
         card_locators = page.locator('a.property-card-link')
         count = card_locators.count()
 
+    if count == 0:
+        card_locators = page.locator('.search-list li, ul li, [class*="search-list"] li')
+        count = card_locators.count()
+
     print(f"Found {count} potential listing elements on Zillow search page.")
     
     for i in range(count):
@@ -90,7 +94,11 @@ def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
             card_loc = card_locators.nth(i)
             anchor_loc = card_loc.locator('a[href*="/homedetails/"]').first
             if not anchor_loc.count():
-                anchor_loc = card_loc if "a" in card_loc.evaluate("el => el.tagName.toLowerCase()") else card_loc.locator('a').first
+                try:
+                    is_anchor = card_loc.evaluate("el => el.tagName.toLowerCase() == 'a'")
+                except Exception:
+                    is_anchor = False
+                anchor_loc = card_loc if is_anchor else card_loc.locator('a').first
             
             href = anchor_loc.get_attribute("href") or ""
             if not href:
@@ -116,7 +124,7 @@ def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
             if addr_loc.count():
                 address = addr_loc.inner_text()
             else:
-                for selector in ('address', '[class*="Address"]'):
+                for selector in ('address', '[class*="Address"]', '[class*="address"]'):
                     candidate = card_loc.locator(selector).first
                     if candidate.count():
                         address = candidate.inner_text()
