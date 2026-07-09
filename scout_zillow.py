@@ -47,6 +47,21 @@ def _extract_id_from_url(url: str) -> str:
 def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
     print(f"Polling Zillow search: {search_name}...")
     page.goto(url, wait_until="domcontentloaded", timeout=60000)
+    title = page.title()
+    print(f"Page title: {title}")
+    
+    if "denied" in title.lower() or "human" in title.lower() or "robot" in title.lower() or "security" in title.lower():
+        print("\n" + "="*70)
+        print(" [ACTION REQUIRED] Zillow's security screen has been triggered!")
+        print(" Please click and hold on the verification button in the browser window.")
+        print(" Once the rental listings are loaded successfully on your screen,")
+        print(" press [ENTER] in this terminal to resume crawling...")
+        print("="*70 + "\n")
+        try:
+            input("Press [ENTER] when ready...")
+        except (KeyboardInterrupt, EOFError):
+            print("\nVerification cancelled.")
+            return []
     
     for _ in range(5):
         page.evaluate("window.scrollBy(0, 800)")
@@ -127,7 +142,7 @@ def run_poll_cycle() -> dict[str, int]:
     
     with sync_playwright() as p:
         browser = p.chromium.launch(
-            headless=True,
+            headless=False,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox"
