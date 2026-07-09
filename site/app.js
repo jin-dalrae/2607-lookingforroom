@@ -1513,12 +1513,21 @@ async function checkScrapingStatus() {
   if (!base || !state.apiHasScrape) return;
   try {
     const res = await fetch(`${base}/api/scrape/status`);
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text.slice(0, 100)}`);
+    }
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      const text = await res.text();
+      throw new Error(`Response is not JSON: ${text.slice(0, 50)}`);
+    }
     const json = await res.json();
     if (json.ok) {
       updateScrapeUI(json.is_scraping, json.status, json.error);
     }
   } catch (err) {
-    console.error("Failed to check scraping status:", err);
+    console.warn("Failed to check scraping status (tunnel likely offline):", err.message);
   }
 }
 
