@@ -13,7 +13,7 @@ load_dotenv()
 SETUP_INSTRUCTIONS = """
 Gmail not configured. Add to .env:
 
-  GMAIL_ADDRESS=dalrae.jin.work@gmail.com
+  GMAIL_ADDRESS=your-email@gmail.com
   GMAIL_PASSWORD=your-16-char-app-password
 
 How to get the password (NOT your normal Gmail login):

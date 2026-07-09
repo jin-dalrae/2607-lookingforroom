@@ -286,7 +286,7 @@ def _format_gmail_status_message() -> str:
 def _format_gmail_auth_instructions() -> str:
     return (
         "Gmail OAuth setup (one-time)\n\n"
-        "1. GCP Console → project 267981036962\n"
+        "1. GCP Console\n"
         "   • Enable Gmail API\n"
         "   • OAuth consent screen (add your Gmail as test user if External)\n"
         "   • Credentials → OAuth 2.0 Client → Desktop app\n\n"

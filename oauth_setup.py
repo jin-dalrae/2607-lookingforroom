@@ -46,7 +46,7 @@ def main() -> int:
     if not gmail_auth.oauth_configured():
         print(
             "OAuth client not fully configured.\n\n"
-            "1. Enable Gmail API in GCP project 267981036962\n"
+            "1. Enable Gmail API in your GCP project\n"
             "2. Configure OAuth consent screen\n"
             "3. Create OAuth 2.0 Client (Desktop app)\n"
             "4. Add to .env:\n"
@@ -62,7 +62,7 @@ def main() -> int:
         elif args.url:
             print(gmail_auth.print_auth_url())
             print(f"\nRedirect URI: {gmail_auth.redirect_uri()}")
-            print("\nSign in as dalrae.jin.work@gmail.com, then run:")
+            print("\nSign in with your Google Account, then run:")
             print('  python oauth_setup.py --redirect "PASTE_REDIRECT_URL"')
         else:
             gmail_auth.run_oauth_flow(headless=args.headless)

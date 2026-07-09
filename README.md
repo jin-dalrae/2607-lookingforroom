@@ -16,6 +16,24 @@ Everything lives in a local SQLite database (`listings.db`). The apply queue is 
 
 You still send messages yourself (Craigslist relay, Facebook Messenger, or Gmail). The tool finds listings, helps you decide, drafts copy, and remembers what you've already contacted.
 
+## How to use this
+
+To quickly check and set up the system:
+1. **Install dependencies**: Create a virtual environment, install requirements, and install Chromium for Facebook scraping:
+   ```bash
+   python -m venv .venv && source .venv/bin/activate
+   pip install -r requirements.txt
+   playwright install chromium
+   ```
+2. **Run Interactive Setup**: Run the interactive setup script, which will prompt you for your search/profile conditions, generate customized messaging templates, initialize the database, start the background servers, and automatically open the UI page on your computer!
+   ```bash
+   python setup.py
+   ```
+3. **Scout for Listings**: Run the pipeline to populate the queue with fresh listings:
+   ```bash
+   python run.py
+   ```
+
 ## Search criteria
 
 Configured in `config.py` → `SEARCH_CRITERIA` and `profile.yaml`:
@@ -144,10 +162,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 playwright install chromium   # for Facebook scout only
 
-cp .env.example .env          # add API keys as needed
+# Run the interactive setup script
+python setup.py
 ```
 
-Edit `profile.yaml` with your name, move-in window, budget, and message template.
+The interactive setup will ask you for your conditions (name, email, phone, move-in window, and budget), generate customized templates, start the local server, and open the interface in your browser. You can edit `profile.yaml` directly or re-run `python setup.py` at any time to update your profile.
 
 ### Facebook Marketplace
 

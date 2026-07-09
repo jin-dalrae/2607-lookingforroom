@@ -191,7 +191,7 @@ def run_oauth_flow(*, headless: bool = False) -> None:
 
     if headless:
         auth_url = print_auth_url()
-        print("Open this URL (incognito → dalrae.jin.work@gmail.com):\n")
+        print("Open this URL (incognito with your Google Account):\n")
         print(auth_url)
         print(f"\nRedirect URI: {uri}")
         print("\nAfter Allow, paste the full localhost URL or code:")
@@ -227,8 +227,8 @@ def auth_status() -> dict[str, Any]:
 GCP_REDIRECT_FIX = """
 redirect_uri_mismatch — fix in GCP Console:
 
-1. Open https://console.cloud.google.com/apis/credentials?project=267981036962
-2. Click your OAuth 2.0 Client ID (the one ending in ...gitkis35)
+1. Open https://console.cloud.google.com/apis/credentials
+2. Click your OAuth 2.0 Client ID
 3. Under "Authorized redirect URIs" ADD these (if missing):
      http://localhost:8080
      http://localhost:8080/
