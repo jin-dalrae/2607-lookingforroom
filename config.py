@@ -129,6 +129,8 @@ EMBARCADERO_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=embarcadero+room"
 HAYES_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=hayes+valley+room"
 INNER_MISSION_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=inner+mission+room"
 AUGUST_ROOM_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=august+room+available"
+VAN_NESS_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=van+ness+room"
+OCEAN_AVE_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=ocean+ave+room"
 
 WEST_OAKLAND_CRAIGSLIST_URL = (
     "https://sfbay.craigslist.org/search/eby/roo"

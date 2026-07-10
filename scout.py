@@ -29,6 +29,8 @@ from config import (
     SOUTH_SF_CRAIGSLIST_URL,
     SOMA_CRAIGSLIST_URL,
     WEST_OAKLAND_CRAIGSLIST_URL,
+    VAN_NESS_CRAIGSLIST_URL,
+    OCEAN_AVE_CRAIGSLIST_URL,
 )
 from db import get_listing_by_url, init_db, upsert_listing
 
@@ -49,6 +51,8 @@ SEARCH_URLS = [
     ("Downtown Oakland", DOWNTOWN_OAKLAND_CRAIGSLIST_URL),
     ("Emeryville", EMERYVILLE_CRAIGSLIST_URL),
     ("South San Francisco", SOUTH_SF_CRAIGSLIST_URL),
+    ("Van Ness", VAN_NESS_CRAIGSLIST_URL),
+    ("Ocean Ave", OCEAN_AVE_CRAIGSLIST_URL),
 ]
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "

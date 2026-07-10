@@ -53,6 +53,7 @@ const els = {
   statToApply: document.getElementById("stat-to-apply"),
   statApplied: document.getElementById("stat-applied"),
   statReplied: document.getElementById("stat-replied"),
+  statVisited: document.getElementById("stat-visited"),
   statSkipped: document.getElementById("stat-skipped"),
   statGone: document.getElementById("stat-gone"),
   statPendingScore: document.getElementById("stat-pending-score"),
@@ -188,6 +189,11 @@ function hasEverSkipped(item) {
   return item?.appStatus === "skipped";
 }
 
+function hasEverVisited(item) {
+  if (item?.appTouredAt) return true;
+  return item?.appStatus === "toured";
+}
+
 function hasEverGone(item) {
   if (item?.appRejectedAt) return true;
   return item?.appStatus === "rejected";
@@ -198,7 +204,8 @@ function queueStatusFromApp(appStatus) {
   if (appStatus === "skipped") return "skipped";
   if (appStatus === "replied") return "replied";
   if (appStatus === "rejected") return "gone";
-  if (appStatus === "sent" || appStatus === "toured") return "applied";
+  if (appStatus === "toured") return "visited";
+  if (appStatus === "sent") return "applied";
   return "other";
 }
 
@@ -271,6 +278,7 @@ function recalculateCounts() {
     replied: 0,
     skipped: 0,
     gone: 0,
+    visited: 0,
     total: state.data.listings.length,
   };
   for (const item of state.data.listings) {
@@ -278,6 +286,7 @@ function recalculateCounts() {
     if (hasEverReplied(item)) counts.replied += 1;
     if (hasEverSkipped(item)) counts.skipped += 1;
     if (hasEverGone(item)) counts.gone += 1;
+    if (hasEverVisited(item)) counts.visited += 1;
     if (item.queueStatus === "to_apply") counts.toApply += 1;
   }
   state.data.counts = { ...state.data.counts, ...counts };
@@ -551,6 +560,8 @@ function statusCssFor(item) {
       return item.appStatus === "toured" ? "toured" : "sent";
     case "replied":
       return "replied";
+    case "visited":
+      return "toured";
     case "skipped":
       return "skipped";
     case "gone":
@@ -594,6 +605,8 @@ function statusMeta(item) {
       return { label: "Applied" + suffix, css: "sent" };
     case "replied":
       return { label: "Replied" + suffix, css: "replied" };
+    case "visited":
+      return { label: "Visited" + suffix, css: "toured" };
     case "skipped":
       return { label: "Skipped" + suffix, css: "skipped" };
     case "gone":
@@ -616,6 +629,7 @@ function isSearching() {
 
 function searchStatusRank(item) {
   if (item.queueStatus === "replied") return 0;
+  if (item.queueStatus === "visited") return 1;
   if (item.appStatus === "toured") return 1;
   if (item.queueStatus === "to_apply") return 2;
   if (item.queueStatus === "applied") return 3;
@@ -929,6 +943,11 @@ function renderRow(item, index) {
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
     row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
   }
+  if (item.queueStatus === "visited") {
+    row1.push(`<button type="button" class="link-btn danger lost-btn" data-id="${esc(item.id)}">Lost</button>`);
+    row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
+  }
   if (item.queueStatus === "gone") {
     row1.push(`<button type="button" class="link-btn revert-btn" data-id="${esc(item.id)}">Revert</button>`);
   }
@@ -990,6 +1009,7 @@ function render() {
   els.statToApply.textContent = String(c.toApply ?? 0);
   els.statApplied.textContent = String(c.applied ?? 0);
   els.statReplied.textContent = String(c.replied ?? 0);
+  if (els.statVisited) els.statVisited.textContent = String(c.visited ?? 0);
   els.statSkipped.textContent = String(c.skipped ?? 0);
   if (els.statGone) els.statGone.textContent = String(c.gone ?? 0);
   const pendingScore = c.pendingScore ?? 0;
@@ -1479,6 +1499,11 @@ function bindControls() {
     const goneBtn = event.target.closest(".gone-btn");
     if (goneBtn) {
       markGone(goneBtn.dataset.id);
+      return;
+    }
+    const lostBtn = event.target.closest(".lost-btn");
+    if (lostBtn) {
+      markGone(lostBtn.dataset.id, { label: "Lost" });
       return;
     }
     const revertBtn = event.target.closest(".revert-btn");

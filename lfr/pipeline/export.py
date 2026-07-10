@@ -105,6 +105,12 @@ def _ever_skipped(item: dict[str, Any]) -> bool:
     return item.get("appStatus") == "skipped"
 
 
+def _ever_visited(item: dict[str, Any]) -> bool:
+    if item.get("appTouredAt"):
+        return True
+    return item.get("appStatus") == "toured"
+
+
 def _ever_gone(item: dict[str, Any]) -> bool:
     if item.get("appRejectedAt"):
         return True
@@ -120,7 +126,9 @@ def _queue_status(app_status: str | None) -> str:
         return "replied"
     if app_status == "rejected":
         return "gone"
-    if app_status in ("sent", "toured"):
+    if app_status == "toured":
+        return "visited"
+    if app_status == "sent":
         return "applied"
     return "other"
 
@@ -474,6 +482,7 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
         "replied": sum(1 for item in listings if _ever_replied(item)),
         "skipped": sum(1 for item in listings if _ever_skipped(item)),
         "gone": sum(1 for item in listings if _ever_gone(item)),
+        "visited": sum(1 for item in listings if _ever_visited(item)),
         "moveInWindow": sum(1 for item in listings if item["isMatch"]),
         "liked": sum(1 for item in listings if item.get("liked")),
         "pendingScore": sum(1 for item in listings if item.get("scorePending")),
