@@ -89,7 +89,7 @@ def main() -> int:
                 listing_id, dead = future.result()
                 if dead:
                     print(f"❌ DEAD URL DETECTED: {listing['url']} (Marking deleted)")
-                    mark_application_rejected(listing_id, notes="Automatically deleted (URL expired/404)")
+                    mark_application_rejected(listing_id)
                     pruned_count += 1
             except Exception as e:
                 print(f"Error processing {listing['url']}: {e}", file=sys.stderr)
