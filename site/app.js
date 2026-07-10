@@ -925,28 +925,32 @@ function renderRow(item, index) {
     row1.push(`<button type="button" class="link-btn sent-btn" data-id="${esc(item.id)}">Sent</button>`);
     row1.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "skipped") {
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "applied") {
     row1.push(`<button type="button" class="link-btn replied-btn" data-id="${esc(item.id)}">Replied</button>`);
+    row1.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
     row2.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "replied") {
     row1.push(`<button type="button" class="link-btn visited-btn" data-id="${esc(item.id)}">Visited</button>`);
+    row1.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
     row2.push(`<button type="button" class="link-btn danger gone-btn" data-id="${esc(item.id)}">Gone</button>`);
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "visited") {
+    row1.push(`<button type="button" class="link-btn primary contract-btn" data-id="${esc(item.id)}">Contract</button>`);
     row1.push(`<button type="button" class="link-btn danger lost-btn" data-id="${esc(item.id)}">Lost</button>`);
+    row1.push(`<button type="button" class="link-btn skip-btn" data-id="${esc(item.id)}">Skip</button>`);
     row2.push(`<button type="button" class="link-btn danger delete-btn" data-id="${esc(item.id)}">Delete</button>`);
-    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015; margin:0;" data-id="${esc(item.id)}">Scam</button>`);
+    row2.push(`<button type="button" class="link-btn danger scam-btn" style="border-color:#ffccd5; background:#fff0f3; color:#d70015;" data-id="${esc(item.id)}">Scam</button>`);
   }
   if (item.queueStatus === "gone") {
     row1.push(`<button type="button" class="link-btn revert-btn" data-id="${esc(item.id)}">Revert</button>`);
@@ -1294,6 +1298,36 @@ async function markVisited(id) {
   }
 }
 
+async function markContract(id) {
+  const item = (state.data?.listings || []).find((row) => row.id === id);
+  if (!item) return;
+
+  const base = apiBase();
+  if (!base || !state.apiOnline) {
+    applyApplicationStatus(id, "accepted", true);
+    setCachedStatus(id, "accepted");
+    recalculateCounts();
+    render();
+    toast("Contract signed! 🎉 (saved in browser)");
+    return;
+  }
+
+  try {
+    const res = await fetch(`${base}/api/accepted/${encodeURIComponent(id)}`, { method: "POST" });
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
+
+    const status = json.status || "accepted";
+    applyApplicationStatus(id, status, true);
+    setCachedStatus(id, status);
+    recalculateCounts();
+    render();
+    toast("Contract signed! 🎉 Congratulations!");
+  } catch (err) {
+    toast(String(err.message || err), true);
+  }
+}
+
 async function markSkipped(id) {
   const base = apiBase();
 
@@ -1499,6 +1533,11 @@ function bindControls() {
     const goneBtn = event.target.closest(".gone-btn");
     if (goneBtn) {
       markGone(goneBtn.dataset.id);
+      return;
+    }
+    const contractBtn = event.target.closest(".contract-btn");
+    if (contractBtn) {
+      markContract(contractBtn.dataset.id);
       return;
     }
     const lostBtn = event.target.closest(".lost-btn");

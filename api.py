@@ -160,6 +160,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         revert_match = re.match(r"^/api/revert/([^/]+)$", path)
         notes_match = re.match(r"^/api/notes/([^/]+)$", path)
         toured_match = re.match(r"^/api/toured/([^/]+)$", path)
+        accepted_match = re.match(r"^/api/accepted/([^/]+)$", path)
 
         if draft_match:
             listing_id = draft_match.group(1)
@@ -201,6 +202,10 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             listing_id = toured_match.group(1)
             self._handle_toured(listing_id)
             return
+        if accepted_match:
+            listing_id = accepted_match.group(1)
+            self._handle_accepted(listing_id)
+            return
         if path == "/api/scrape":
             self._handle_scrape()
             return
@@ -233,6 +238,24 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             self,
             200,
             {"ok": True, "status": "toured"},
+        )
+
+    def _handle_accepted(self, listing_id: str) -> None:
+        if not ID_RE.match(listing_id):
+            _json_response(self, 400, {"ok": False, "error": "Invalid listing id"})
+            return
+        init_db()
+        listing = _listing_or_404(listing_id)
+        if listing is None:
+            _json_response(self, 404, {"ok": False, "error": "Listing not found"})
+            return
+
+        from lfr.db.applications import mark_application_accepted
+        app = mark_application_accepted(listing["id"])
+        _json_response(
+            self,
+            200,
+            {"ok": True, "status": app["status"] if app else "accepted"},
         )
 
     def _handle_notes(self, listing_id: str) -> None:
