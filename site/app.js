@@ -16,6 +16,7 @@ const state = {
   apiHasReplied: false,
   lastClickedId: null,
   page: 1,
+  unlikedThisSession: new Set(),
 };
 
 const PAGE_SIZE = 10;
@@ -663,7 +664,7 @@ function searchBlob(item) {
 function passesFilters(item) {
   if (!isSearching() && state.tab !== "all" && item.queueStatus !== state.tab) return false;
 
-  if (state.likedOnly && !item.liked) return false;
+  if (state.likedOnly && !item.liked && !state.unlikedThisSession.has(item.id)) return false;
   if (state.memoOnly && !item.notes) return false;
   if (state.source !== "all" && item.source !== state.source) return false;
   const maxPrice = state.maxPrice === "" ? null : Number(state.maxPrice);
@@ -784,6 +785,7 @@ function renderPagination(itemCount) {
 }
 
 function goToPage(page) {
+  state.unlikedThisSession.clear();
   const items = sortedFilteredItems();
   state.page = clampPage(page, items.length);
   render();
@@ -1084,6 +1086,11 @@ async function toggleLike(id) {
   const item = (state.data?.listings || []).find((row) => row.id === id);
   if (!item) return;
   const next = !item.liked;
+  if (!next && state.likedOnly) {
+    state.unlikedThisSession.add(id);
+  } else {
+    state.unlikedThisSession.delete(id);
+  }
   const base = apiBase();
 
   if (!base || !state.apiHasLike) {
@@ -1430,6 +1437,7 @@ async function markSent(id) {
 function bindControls() {
   const rerender = () => render();
   const rerenderFromStart = () => {
+    state.unlikedThisSession.clear();
     state.page = 1;
     rerender();
   };
