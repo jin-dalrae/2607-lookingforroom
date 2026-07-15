@@ -171,12 +171,26 @@ def _enrich_rent_period(
     item["reasoning"] = "; ".join(reasoning_parts)[:120]
 
 
-def score_batch(batch: list[dict[str, Any]], use_gemini: bool = True) -> list[dict[str, Any]]:
+def _gemini_enabled_by_env() -> bool:
+    """Opt-in only: set USE_GEMINI=1 and provide GCP_KEY / generative_language_api_key."""
+    import os
+
+    flag = os.getenv("USE_GEMINI", "").strip().lower()
+    if flag not in ("1", "true", "yes", "on"):
+        return False
+    from config import GCP_KEY, GENERATIVE_LANGUAGE_API_KEY
+
+    return bool((GCP_KEY or "").strip() or (GENERATIVE_LANGUAGE_API_KEY or "").strip())
+
+
+def score_batch(batch: list[dict[str, Any]], use_gemini: bool | None = None) -> list[dict[str, Any]]:
     from lfr.listings.description import is_queue_scorable
 
     batch = [row for row in batch if is_queue_scorable(row)]
     if not batch:
         return []
+    if use_gemini is None:
+        use_gemini = _gemini_enabled_by_env()
     if use_gemini:
         try:
             data = _call_gemini(_prompt(batch))
@@ -295,7 +309,7 @@ def apply_results(results: list[dict[str, Any]]) -> int:
 def _score_listings(
     listings: list[dict[str, Any]],
     *,
-    use_gemini: bool = True,
+    use_gemini: bool | None = None,
     label: str = "listing",
 ) -> int:
     total = 0
@@ -309,12 +323,19 @@ def _score_listings(
     return total
 
 
-def run(*, rescore_all: bool = False, use_gemini: bool = True) -> int:
-    """Score listings. Returns total scored."""
+def run(*, rescore_all: bool = False, use_gemini: bool | None = None) -> int:
+    """Score listings (heuristic by default). Returns total scored."""
     init_db()
     if count_listings() == 0:
         print("No listings found — seeding 3 test listings.")
         seed_test_listings()
+
+    if use_gemini is None:
+        use_gemini = _gemini_enabled_by_env()
+    if use_gemini:
+        print("Scoring with Gemini (USE_GEMINI=1)…")
+    else:
+        print("Scoring with local heuristics (no cloud API required)…")
 
     if rescore_all:
         total = 0
@@ -350,7 +371,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--heuristic-only",
         action="store_true",
-        help="Skip Gemini API and use local heuristic scorer only.",
+        help="Force local heuristic scorer (default unless USE_GEMINI=1).",
+    )
+    parser.add_argument(
+        "--gemini",
+        action="store_true",
+        help="Use Gemini API scoring (requires USE_GEMINI=1 env + API key).",
     )
     return parser.parse_args(argv)
 
@@ -358,7 +384,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     try:
-        total = run(rescore_all=args.rescore_all, use_gemini=not args.heuristic_only)
+        if args.heuristic_only:
+            use_gemini = False
+        elif args.gemini:
+            use_gemini = True
+        else:
+            use_gemini = None  # env default
+        total = run(rescore_all=args.rescore_all, use_gemini=use_gemini)
         if total == 0:
             print("No listings to process.")
         else:

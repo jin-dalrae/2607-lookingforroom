@@ -11,6 +11,7 @@ const ENDPOINTS = [
   "revert",
   "notes",
   "toured",
+  "accepted",
 ];
 
 const MILESTONE_COL = {
@@ -283,7 +284,7 @@ export async function handleQueueApi(request, env, segments, method) {
   }
 
   const actionMatch = route.match(
-    /^(sent|replied|skip|like|delete|scam|revert|notes|toured)\/([^/]+)$/
+    /^(sent|replied|skip|like|delete|scam|revert|notes|toured|accepted)\/([^/]+)$/
   );
   if (!actionMatch) {
     return jsonError(404, "Not found");
@@ -322,6 +323,10 @@ export async function handleQueueApi(request, env, segments, method) {
     case "toured": {
       await transitionApplication(db, listingId, "toured");
       return jsonResponse({ ok: true, status: "toured" });
+    }
+    case "accepted": {
+      await transitionApplication(db, listingId, "accepted");
+      return jsonResponse({ ok: true, status: "accepted" });
     }
     case "notes": {
       const body = await readJson(request);

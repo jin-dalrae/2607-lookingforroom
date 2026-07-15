@@ -1,4 +1,4 @@
-"""Gemini API batch scoring."""
+"""Optional Gemini API batch scoring (off by default — heuristics are enough)."""
 
 from __future__ import annotations
 
@@ -10,11 +10,15 @@ from config import AI_MODEL, GCP_KEY, GENERATIVE_LANGUAGE_API_KEY
 
 from lfr.score.criteria import CRITERIA, MODEL_FALLBACKS
 
+
 def _api_key() -> str:
     for key in (GCP_KEY, GENERATIVE_LANGUAGE_API_KEY):
         if key and key.strip():
             return key.strip()
-    raise RuntimeError("No API key in .env (GCP_KEY or generative_language_api_key)")
+    raise RuntimeError(
+        "Gemini scoring needs GCP_KEY (or generative_language_api_key) in .env "
+        "and USE_GEMINI=1. Default scoring uses local heuristics only."
+    )
 
 
 def _compact(row: dict[str, Any]) -> dict[str, Any]:
@@ -98,7 +102,14 @@ def _parse_json(text: str) -> dict[str, Any]:
 
 
 def _call_gemini(prompt: str) -> dict[str, Any]:
-    import google.generativeai as genai
+    try:
+        import google.generativeai as genai
+    except ImportError as exc:
+        raise RuntimeError(
+            "google-generativeai is not installed. "
+            "Default scoring needs no AI package; for Gemini install "
+            "`pip install google-generativeai` and set USE_GEMINI=1."
+        ) from exc
 
     genai.configure(api_key=_api_key())
     last_err: Exception | None = None

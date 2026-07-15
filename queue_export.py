@@ -1,3 +1,8 @@
-"""Backward-compatible shim — prefer lfr.pipeline.export."""
+"""Backward-compatible shim — implementation: `lfr.pipeline.export`."""
 
-from lfr.pipeline.export import *  # noqa: F403
+from __future__ import annotations
+
+import sys
+from importlib import import_module
+
+sys.modules[__name__] = import_module("lfr.pipeline.export")

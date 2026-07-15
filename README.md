@@ -10,7 +10,7 @@ Everything lives in a local SQLite database (`listings.db`). The apply queue is 
 |-------|----------------|
 | **Scout** | Polls Craigslist search URLs and Facebook Marketplace (Playwright) for new room listings |
 | **Filter** | Tags each listing — move-in window, room type, location zone, scams, transit bonuses |
-| **Rank** | Scores listings (Gemini + heuristics) and writes a top-N digest (`digest.md`) |
+| **Rank** | Scores listings with local heuristics (optional Gemini) and writes a top-N digest (`digest.md`) |
 | **Apply queue** | Exports filtered listings to `site/data.json` for the web UI |
 | **Track** | Records sent / skipped / replied status per listing in the `applications` table |
 
@@ -89,7 +89,7 @@ Both write into `listings.db` via `db.upsert_listing()`.
 - **Transit** — proximity bonuses from configured transit preferences
 - **Rent period** — rejects weekly/daily/sublet when flagged
 
-`rank.py` combines Gemini scoring (when `GCP_KEY` is set) with heuristic bonuses/penalties and produces `digest.md`.
+Scoring uses **local heuristics by default** (no API key). Optional Gemini scoring: set `USE_GEMINI=1` and `GCP_KEY` in `.env`, then `pip install google-generativeai`. `rank.py` writes `digest.md`.
 
 `match.py` exposes `listing_matches_criteria()` — the same rules the apply queue uses for the criteria filter.
 
@@ -193,27 +193,9 @@ scripts/deploy-pages.sh
 
 The UI works read-only on Pages. **Mark sent / Skip** need the local API (or a tunneled `APPLY_API_PUBLIC_URL` in `.env`).
 
-## Telegram bot (optional)
+## Gmail (optional)
 
-For mobile alerts and drafts:
-
-```bash
-python bot.py
-```
-
-Set `TELEGRAM_BOT_TOKEN` in `.env`, then open your bot in Telegram and tap **Start** once.
-
-Useful commands: `/run` `/apply` `/sent` `/apps` `/mail` `/help`
-
-One-shot alerts after a pipeline run:
-
-```bash
-python run.py --alert
-```
-
-## Gmail
-
-OAuth is recommended for inbox monitoring and optional Gmail drafts:
+For inbox monitoring and optional Gmail drafts:
 
 ```bash
 python oauth_setup.py             # one-time consent
@@ -222,60 +204,44 @@ python -c "import gmail_auth; print(gmail_auth.auth_status())"
 
 Set `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, and `GMAIL_ADDRESS` in `.env`. App Password (`GMAIL_APP_PASSWORD`) works as a fallback.
 
-**Craigslist note:** listings rarely expose a direct email. Most outreach is copy-paste into Craigslist Reply or the apply queue's Gmail compose link. `/send` and `send_mail.py` only work when an address appears in the post text.
+**Craigslist note:** listings rarely expose a direct email. Most outreach is copy-paste into Craigslist Reply or the apply queue's Gmail compose link.
 
 ## Project layout
 
+Implementation lives under `lfr/`. Root-level `*.py` files are thin CLI/import shims so existing commands (`python run.py`, `python api.py`, …) keep working.
+
 ```
 profile.yaml          Applicant profile and message template
-config.py             Search criteria, URLs, location zones
 run.py                CLI pipeline orchestrator
-bot.py                Telegram bot
+api.py                Local apply API
+setup.py              Interactive setup
+listings_page.py      Export CLI → site/data.json
 
-scout.py              Craigslist fetcher
-scout_facebook.py     Facebook Marketplace (Playwright)
-filter.py             Listing tags and Gemini scoring
-rank.py               Top-N digest
-match.py              Hard filter for apply-queue matches
-apply.py              Draft builder
-outreach.py           Batch drafts for top listings
-
-db.py                 SQLite — listings, scores, applications
-sync.py               CLI status updates
-queue_export.py       Builds site/data.json
-listings_page.py      Export CLI
-api.py                Local apply API (sent / skip / like / draft)
-
-locations.py          Address parsing and location zones
-listing_move_in.py    Move-in date parsing
-listing_dates.py      Posted-date parsing
-listing_description.py  Description extraction
-listing_size.py       Sqft extraction
-listing_poster.py     Poster name extraction
+lfr/
+  config.py           Search criteria, URLs, location zones
+  apply.py            Draft builder
+  rank.py             Top-N digest
+  check_urls.py       Prune unavailable posts
+  paths.py            Project root paths
+  scout/              Craigslist / Facebook / Zillow
+  mail/               Optional Gmail helpers
+  web/api.py          HTTP apply API
+  db/ listings/ pipeline/ score/
+  archive/            Deprecated extras (Telegram bot, etc.)
 
 site/                 Apply queue static UI
-  index.html          Main table
-  app.js              Filters, sort, pagination, apply actions
-  data.json           Generated listing export
-  map.html            Map view
-
-scripts/
-  workers.sh          Start/stop detached UI + API
-  deploy-pages.sh     Cloudflare Pages deploy
-  backfill-fb-details.sh  Facebook description backfill
+scripts/workers.sh    Start/stop detached UI + API
 
 listings.db           Runtime database (gitignored)
-digest.md             Generated ranked digest
 ```
 
 ## Daily workflow
 
-1. **Refresh listings** — `python run.py` (or cron / `/run` in Telegram).
+1. **Refresh listings** — `python run.py` (or cron / `scripts/daily-pull.sh`).
 2. **Re-export queue** — `scripts/workers.sh restart` or `python listings_page.py`.
 3. **Work the queue** — http://127.0.0.1:8765/ — filter to "To apply", sort by score, apply to promising rows.
 4. **Mark sent** after each outreach so you don't double-contact.
-5. **Check mail** — `python mail_monitor.py` or `/mail` for landlord replies.
-6. **Facebook groups** — still manual; Marketplace is automated.
+5. **Optional mail check** — `python mail_monitor.py` for landlord replies (if Gmail is configured).
 
 ## Configuration reference
 

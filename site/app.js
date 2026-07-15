@@ -215,6 +215,7 @@ function queueStatusFromApp(appStatus) {
   if (appStatus === "replied") return "replied";
   if (appStatus === "rejected") return "gone";
   if (appStatus === "toured") return "visited";
+  if (appStatus === "accepted") return "contract";
   if (appStatus === "sent") return "applied";
   return "other";
 }
@@ -572,6 +573,8 @@ function statusCssFor(item) {
       return "replied";
     case "visited":
       return "toured";
+    case "contract":
+      return "toured";
     case "skipped":
       return "skipped";
     case "gone":
@@ -617,6 +620,8 @@ function statusMeta(item) {
       return { label: "Replied" + suffix, css: "replied" };
     case "visited":
       return { label: "Visited" + suffix, css: "toured" };
+    case "contract":
+      return { label: "Contract" + suffix, css: "toured" };
     case "skipped":
       return { label: "Skipped" + suffix, css: "skipped" };
     case "gone":

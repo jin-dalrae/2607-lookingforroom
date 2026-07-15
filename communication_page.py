@@ -1,3 +1,8 @@
-"""Deprecated — track applications in the main apply queue (site/)."""
+"""Backward-compatible shim — implementation: `lfr.archive.communication_page`."""
 
-from lfr.archive.communication_page import *  # noqa: F403
+from __future__ import annotations
+
+import sys
+from importlib import import_module
+
+sys.modules[__name__] = import_module("lfr.archive.communication_page")

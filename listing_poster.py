@@ -1,3 +1,8 @@
-"""Backward-compatible shim — prefer lfr.listings.poster."""
+"""Backward-compatible shim — implementation: `lfr.listings.poster`."""
 
-from lfr.listings.poster import *  # noqa: F403
+from __future__ import annotations
+
+import sys
+from importlib import import_module
+
+sys.modules[__name__] = import_module("lfr.listings.poster")

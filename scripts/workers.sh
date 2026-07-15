@@ -75,14 +75,6 @@ export_queue() {
   "$PYTHON" listings_page.py
 }
 
-send_telegram_digest() {
-  if [[ "${TELEGRAM_ALERT:-0}" != "1" ]]; then
-    return 0
-  fi
-  echo "Sending Telegram digest (if configured)..."
-  TELEGRAM_STATUS="${TELEGRAM_STATUS:-0}" "$PYTHON" "$ROOT/scripts/telegram_digest.py" || true
-}
-
 start_api() {
   if read_pid "$API_PID_FILE" >/dev/null; then
     echo "Apply API already running (pid $(cat "$API_PID_FILE"))."
@@ -129,7 +121,6 @@ cmd_pull() {
 
 cmd_start() {
   export_queue
-  send_telegram_digest
   start_api
   start_ui
   if wait_healthy; then
@@ -203,7 +194,7 @@ Usage: scripts/workers.sh <command>
 
 Commands:
   start      Export queue + start detached UI and API workers
-  pull       Daily pipeline: scout, filter, export, Telegram, restart workers
+  pull       Daily pipeline: scout, filter, export, restart workers
   stop       Stop workers
   restart    stop then start
   status     Show worker state
@@ -211,8 +202,6 @@ Commands:
   uninstall  Remove LaunchAgents and stop workers
 
 Env: STATIC_PORT, API_PORT, RUN_DIR, PYTHON
-      TELEGRAM_ALERT=1 on start/restart — send deduped high-score digest after export
-      TELEGRAM_STATUS=1 — also send queue + match count (used by pull)
 EOF
 }
 

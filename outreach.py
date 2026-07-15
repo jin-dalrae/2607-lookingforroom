@@ -1,3 +1,8 @@
-"""Deprecated — outreach drafts are handled via apply.py and the queue UI."""
+"""Backward-compatible shim — implementation: `lfr.archive.outreach`."""
 
-from lfr.archive.outreach import *  # noqa: F403
+from __future__ import annotations
+
+import sys
+from importlib import import_module
+
+sys.modules[__name__] = import_module("lfr.archive.outreach")

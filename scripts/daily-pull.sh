@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Scheduled pull: Craigslist (+ optional Facebook), score, export, Telegram, workers.
+# Scheduled pull: Craigslist (+ optional Facebook), score, export, restart workers.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -11,8 +11,6 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 WITH_FACEBOOK="${WITH_FACEBOOK:-0}"
-TELEGRAM_ALERT="${TELEGRAM_ALERT:-1}"
-TELEGRAM_STATUS="${TELEGRAM_STATUS:-1}"
 DETAIL_BACKFILL_LIMIT="${DETAIL_BACKFILL_LIMIT:-15}"
 FB_TITLE_BACKFILL_LIMIT="${FB_TITLE_BACKFILL_LIMIT:-3}"
 POSTED_BACKFILL_LIMIT="${POSTED_BACKFILL_LIMIT:-25}"
@@ -37,18 +35,16 @@ echo "▶ Filter + rank…"
 "$PYTHON" filter.py
 "$PYTHON" rank.py
 
+echo "▶ Prune unavailable to-apply / applied posts…"
+"$PYTHON" check_urls.py || true
+
 echo "▶ Export queue…"
 DETAIL_BACKFILL_LIMIT="$DETAIL_BACKFILL_LIMIT" \
 FB_TITLE_BACKFILL_LIMIT="$FB_TITLE_BACKFILL_LIMIT" \
 POSTED_BACKFILL_LIMIT="$POSTED_BACKFILL_LIMIT" \
 "$PYTHON" listings_page.py
 
-if [[ "$TELEGRAM_ALERT" == "1" ]]; then
-  echo "▶ Telegram digest…"
-  TELEGRAM_STATUS="$TELEGRAM_STATUS" "$PYTHON" scripts/telegram_digest.py
-fi
-
 echo "▶ Restart local workers…"
-TELEGRAM_ALERT=0 "$ROOT/scripts/workers.sh" restart
+"$ROOT/scripts/workers.sh" restart
 
 echo "Done."
