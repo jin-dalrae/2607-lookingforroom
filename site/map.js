@@ -94,10 +94,20 @@ function bindControls() {
 
 }
 
+function applyPageBranding() {
+  const title = (state.data?.pageTitle || "").trim() || "Listing map";
+  document.title = title.includes("map") ? title : `${title} — Map`;
+  const back = document.getElementById("back-to-queue");
+  if (back && state.data?.pageTitle) {
+    back.textContent = `Back to ${state.data.pageTitle}`;
+  }
+}
+
 async function init() {
   initMap();
   const res = await fetch("./data.json?ts=" + Date.now());
   state.data = await res.json();
+  applyPageBranding();
   bindControls();
   renderPins();
 }

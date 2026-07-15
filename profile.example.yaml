@@ -1,6 +1,10 @@
 name: "Your Name"
+# UI title is derived from name + move-in end date, e.g. "Alex's housing search to Aug 18".
+# Optional overrides:
+# page_title: "My room search to Sep 1"   # full custom title
+# deadline: "Sep 1"                      # short date label only
 email: "you@example.com"
-email_subject: "Room Rental Inquiry by Aug 18"
+email_subject: "Room Rental Inquiry"
 phone: "555-555-5555"
 move_in: "late July through August 18, 2026"
 budget: 1300

@@ -60,7 +60,16 @@ const els = {
   statPendingScore: document.getElementById("stat-pending-score"),
   statPendingScoreWrap: document.getElementById("stat-pending-score-wrap"),
   pagination: document.getElementById("pagination"),
+  pageTitle: document.getElementById("page-title"),
 };
+
+const DEFAULT_PAGE_TITLE = "Looking for Room";
+
+function applyPageBranding() {
+  const title = (state.data?.pageTitle || "").trim() || DEFAULT_PAGE_TITLE;
+  document.title = title;
+  if (els.pageTitle) els.pageTitle.textContent = title;
+}
 
 function toast(text, isError = false) {
   els.toast.textContent = text;
@@ -804,6 +813,9 @@ function subLines(item) {
   const tags = [];
   if (item.posterName) tags.push(`<span class="tag-inline tag-poster">${esc(item.posterName)}</span>`);
   if (item.transitTag) tags.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
+  if (item.isDead) {
+    tags.push(`<span class="tag-inline" style="background:#fce8e6; color:#c5221f; padding:0.1rem 0.35rem; border-radius:4px; font-weight:700;">⚠️ DEAD / 404</span>`);
+  }
   if (item.isGrouped) {
     tags.push(`<span class="tag-inline same-house-btn" data-group-id="${esc(item.groupId)}" style="background:#f3e8ff; color:var(--purple); padding:0.1rem 0.35rem; border-radius:4px; font-weight:700; cursor:pointer;" title="Click to show all listings for this house">🏠 Same House (${item.duplicateCount} other${item.duplicateCount > 1 ? "s" : ""})</span>`);
   }
@@ -1004,6 +1016,7 @@ function updateSortHeaders() {
 }
 
 function render() {
+  applyPageBranding();
   const items = sortedFilteredItems();
   const pageItems = paginatedItems(items);
   const startIndex = (state.page - 1) * PAGE_SIZE;

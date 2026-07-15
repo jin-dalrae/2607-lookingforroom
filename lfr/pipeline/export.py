@@ -138,7 +138,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     app = get_application_by_listing_id(listing_id)
     app_status = app["status"] if app else None
     url = row.get("url") or ""
-    subject = (profile.get("email_subject") or "Room Rental Inquiry by Aug 18").strip()
+    subject = (profile.get("email_subject") or "Room Rental Inquiry").strip()
     to_addr = extract_listing_email(row) or ""
     place = resolve_listing_place(row)
     loc = listing_location_context(row)
@@ -166,16 +166,20 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
     )
 
     app_notes = ""
+    is_dead_link = False
     if app and app.get("notes"):
         raw_notes = app["notes"]
-        try:
-            parsed = json.loads(raw_notes)
-            if isinstance(parsed, dict):
-                app_notes = parsed.get("user_notes") or ""
-            else:
+        if raw_notes == "system:dead":
+            is_dead_link = True
+        else:
+            try:
+                parsed = json.loads(raw_notes)
+                if isinstance(parsed, dict):
+                    app_notes = parsed.get("user_notes") or ""
+                else:
+                    app_notes = raw_notes
+            except Exception:
                 app_notes = raw_notes
-        except Exception:
-            app_notes = raw_notes
 
     return {
         "id": listing_id,
@@ -208,6 +212,7 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "appRejectedAt": app.get("rejected_at") if app else None,
         "appSkippedAt": app.get("skipped_at") if app else None,
         "notes": app_notes,
+        "isDead": is_dead_link,
         "postedAt": posted_at,
         "postedLabel": posted_display_label(row),
         "lat": coords[0] if coords else None,
@@ -468,10 +473,143 @@ def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any
     return listings
 
 
+_MONTH_ABBREV = {
+    1: "Jan",
+    2: "Feb",
+    3: "Mar",
+    4: "Apr",
+    5: "May",
+    6: "Jun",
+    7: "Jul",
+    8: "Aug",
+    9: "Sep",
+    10: "Oct",
+    11: "Nov",
+    12: "Dec",
+}
+
+_MONTH_NAME_TO_NUM = {
+    "jan": 1,
+    "january": 1,
+    "feb": 2,
+    "february": 2,
+    "mar": 3,
+    "march": 3,
+    "apr": 4,
+    "april": 4,
+    "may": 5,
+    "jun": 6,
+    "june": 6,
+    "jul": 7,
+    "july": 7,
+    "aug": 8,
+    "august": 8,
+    "sep": 9,
+    "sept": 9,
+    "september": 9,
+    "oct": 10,
+    "october": 10,
+    "nov": 11,
+    "november": 11,
+    "dec": 12,
+    "december": 12,
+}
+
+
+def _format_deadline_label(month: int, day: int) -> str:
+    abbrev = _MONTH_ABBREV.get(month)
+    if not abbrev:
+        return ""
+    return f"{abbrev} {day}"
+
+
+def _deadline_from_text(text: str) -> str:
+    """Best-effort end date from free text like 'late July through August 18, 2026'."""
+    blob = (text or "").strip()
+    if not blob:
+        return ""
+
+    # Prefer explicit "by/to/until/through Month Day" near the end of the phrase.
+    patterns = (
+        r"(?:by|to|until|through|thru)\s+"
+        r"(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+        r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|"
+        r"nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})\b",
+        r"\b(jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|"
+        r"jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|"
+        r"nov(?:ember)?|dec(?:ember)?)\.?\s+(\d{1,2})(?:st|nd|rd|th)?"
+        r"(?:,?\s*\d{4})?\b",
+        r"\b(\d{1,2})/(\d{1,2})(?:/\d{2,4})?\b",
+        r"\b(\d{4})-(\d{1,2})-(\d{1,2})\b",
+    )
+    matches: list[tuple[int, int]] = []
+    for idx, pattern in enumerate(patterns):
+        for m in re.finditer(pattern, blob, flags=re.IGNORECASE):
+            if idx == 2:
+                month, day = int(m.group(1)), int(m.group(2))
+            elif idx == 3:
+                month, day = int(m.group(2)), int(m.group(3))
+            else:
+                month = _MONTH_NAME_TO_NUM.get(m.group(1).lower().rstrip("."), 0)
+                day = int(m.group(2))
+            if 1 <= month <= 12 and 1 <= day <= 31:
+                matches.append((month, day))
+    if not matches:
+        return ""
+    month, day = matches[-1]
+    return _format_deadline_label(month, day)
+
+
+def _deadline_label(profile: dict[str, Any]) -> str:
+    """Short move-in deadline for the page title (e.g. 'Aug 18')."""
+    custom = str(profile.get("deadline") or profile.get("page_deadline") or "").strip()
+    if custom:
+        return custom
+
+    for key in ("move_in", "email_subject"):
+        label = _deadline_from_text(str(profile.get(key) or ""))
+        if label:
+            return label
+
+    try:
+        from config import SEARCH_CRITERIA
+
+        end = SEARCH_CRITERIA.get("move_in_end")
+        if end is not None and hasattr(end, "month") and hasattr(end, "day"):
+            return _format_deadline_label(int(end.month), int(end.day))
+    except Exception:
+        pass
+    return ""
+
+
+def _page_title(profile: dict[str, Any]) -> str:
+    """UI title from profile name + move-in deadline (or page_title override)."""
+    custom = str(profile.get("page_title") or "").strip()
+    if custom:
+        return custom
+
+    name = str(profile.get("name") or "").strip()
+    deadline = _deadline_label(profile)
+    has_name = bool(name) and name.lower() not in {"your name", "there"}
+
+    if has_name:
+        possessive = f"{name}'" if name.lower().endswith("s") else f"{name}'s"
+        base = f"{possessive} housing search"
+    else:
+        base = "Looking for Room"
+
+    if deadline:
+        return f"{base} to {deadline}"
+    return base
+
+
 def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
     init_db()
     profile = load_profile()
-    subject = (profile.get("email_subject") or "Room Rental Inquiry by Aug 18").strip()
+    subject = (profile.get("email_subject") or "Room Rental Inquiry").strip()
+    user_name = str(profile.get("name") or "").strip()
+    deadline_label = _deadline_label(profile)
+    page_title = _page_title(profile)
 
     rows = get_queue_export_listings(pool_limit=export_limit)
     listings = [_serialize_listing(row, profile) for row in rows]
@@ -494,6 +632,9 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
     return {
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "apiUrl": api_url,
+        "userName": user_name,
+        "deadlineLabel": deadline_label,
+        "pageTitle": page_title,
         "subject": subject,
         "messageTemplate": standard_apply_message(profile, ""),
         "counts": counts,

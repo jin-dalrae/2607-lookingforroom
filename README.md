@@ -1,6 +1,6 @@
 # Looking for Room
 
-A personal room-finding system for the San Francisco Bay Area. It scouts Craigslist and Facebook Marketplace, filters listings against your criteria, scores and ranks matches, and gives you a browser-based **apply queue** to work through outreach without losing track of what you've sent.
+A local room-finding system. It scouts Craigslist and Facebook Marketplace, filters listings against configurable criteria, scores and ranks matches, and gives you a browser-based **apply queue** to work through outreach without losing track of what you've sent.
 
 Everything lives in a local SQLite database (`listings.db`). The apply queue is a static site (`site/`) backed by a small local API for status updates and Gmail drafts.
 
@@ -10,7 +10,7 @@ Everything lives in a local SQLite database (`listings.db`). The apply queue is 
 |-------|----------------|
 | **Scout** | Polls Craigslist search URLs and Facebook Marketplace (Playwright) for new room listings |
 | **Filter** | Tags each listing — move-in window, room type, location zone, scams, transit bonuses |
-| **Rank** | Scores listings (Gemini + heuristics) and writes a top-15 digest (`digest.md`) |
+| **Rank** | Scores listings (Gemini + heuristics) and writes a top-N digest (`digest.md`) |
 | **Apply queue** | Exports filtered listings to `site/data.json` for the web UI |
 | **Track** | Records sent / skipped / replied status per listing in the `applications` table |
 
@@ -18,34 +18,29 @@ You still send messages yourself (Craigslist relay, Facebook Messenger, or Gmail
 
 ## How to use this
 
-To quickly check and set up the system:
 1. **Install dependencies**: Create a virtual environment, install requirements, and install Chromium for Facebook scraping:
    ```bash
    python -m venv .venv && source .venv/bin/activate
    pip install -r requirements.txt
    playwright install chromium
    ```
-2. **Run Interactive Setup**: Run the interactive setup script, which will prompt you for your search/profile conditions, generate customized messaging templates, initialize the database, start the background servers, and automatically open the UI page on your computer!
+2. **Run interactive setup**: Prompts for search/profile conditions, generates messaging templates, initializes the database, starts background servers, and opens the UI:
    ```bash
    python setup.py
    ```
-3. **Scout for Listings**: Run the pipeline to populate the queue with fresh listings:
+3. **Scout for listings**: Run the pipeline to populate the queue:
    ```bash
    python run.py
    ```
 
 ## Search criteria
 
-Configured in `config.py` → `SEARCH_CRITERIA` and `profile.yaml`:
+Budget, move-in window, location zones, room-type rules, and transit preferences are configured in:
 
-| Setting | Value |
-|---------|-------|
-| Max rent | $1,300/mo ($800–$1,000 preferred) |
-| Room type | Private bedroom or small shared house (~3 people) |
-| Reject | Shared bedroom, SRO/hostel, curtain rooms, scams, far East Bay |
-| Location | San Francisco, Emeryville, West Oakland, Downtown Oakland, South San Francisco |
-| Transit bonus | Muni Metro/tram or Caltrain within ~10 min walk (not BART-first) |
-| Move-in window | July 20 – August 18, 2026 |
+- `config.py` → `SEARCH_CRITERIA`, `SEARCH_URLS`, location/transit settings
+- `profile.yaml` → applicant profile and message template
+
+Edit those files (or re-run `python setup.py`) rather than hardcoding criteria in the app.
 
 ## How it works
 
@@ -80,7 +75,7 @@ flowchart LR
 
 **Craigslist** (`scout.py`) fetches configured search result pages, then visits each listing for the full post body, price, neighborhood, and posted date.
 
-**Facebook Marketplace** (`scout_facebook.py`) uses Playwright with a saved browser session (`facebook_state.json`). After a one-time login it polls several search feeds (SF, Oakland, Emeryville, etc.) and can backfill listing descriptions on demand.
+**Facebook Marketplace** (`scout_facebook.py`) uses Playwright with a saved browser session (`facebook_state.json`). After a one-time login it polls the configured search feeds and can backfill listing descriptions on demand.
 
 Both write into `listings.db` via `db.upsert_listing()`.
 
@@ -88,15 +83,15 @@ Both write into `listings.db` via `db.upsert_listing()`.
 
 `filter.py` reads each listing and sets structured flags in `flags_json`:
 
-- **Move-in fit** — parsed from post text (`listing_move_in.py`); must land in July 20 – Aug 18
+- **Move-in fit** — parsed from post text (`listing_move_in.py`) against the configured window
 - **Location** — whitelist zones and hard rejects (`locations.py`)
 - **Room type** — private vs shared-bedroom / SRO / scam signals
-- **Transit** — Muni Metro, Caltrain, BART proximity bonuses
+- **Transit** — proximity bonuses from configured transit preferences
 - **Rent period** — rejects weekly/daily/sublet when flagged
 
 `rank.py` combines Gemini scoring (when `GCP_KEY` is set) with heuristic bonuses/penalties and produces `digest.md`.
 
-`match.py` exposes `listing_matches_criteria()` — the same rules the apply queue uses for the "My move-in window" filter.
+`match.py` exposes `listing_matches_criteria()` — the same rules the apply queue uses for the criteria filter.
 
 ### 3. Field extraction
 
@@ -117,7 +112,7 @@ Several small modules parse post text at export time (no duplicate storage in th
 
 - Pulls the listing pool from SQLite (scored matches + Facebook cards + anything with an application row)
 - Runs light backfills (addresses, neighborhoods, posted dates)
-- Caps description text at 500 chars to keep the page small (~250 KB for ~200 listings)
+- Caps description text to keep the page small
 - Embeds one shared `messageTemplate` from `profile.yaml` (not per-row message blobs)
 
 ### 5. Apply queue UI
@@ -130,7 +125,7 @@ scripts/workers.sh start
 
 | Service | URL | Role |
 |---------|-----|------|
-| Queue UI | http://127.0.0.1:8765/ | Table of listings — sort, filter, paginate (10/page) |
+| Queue UI | http://127.0.0.1:8765/ | Table of listings — sort, filter, paginate |
 | Apply API | http://127.0.0.1:8787/ | Persist sent / skipped / liked / Gmail draft |
 | Map view | http://127.0.0.1:8765/map.html | Approximate pins from neighborhood centroids |
 
@@ -166,7 +161,7 @@ playwright install chromium   # for Facebook scout only
 python setup.py
 ```
 
-The interactive setup will ask you for your conditions (name, email, phone, move-in window, and budget), generate customized templates, start the local server, and open the interface in your browser. You can edit `profile.yaml` directly or re-run `python setup.py` at any time to update your profile.
+Setup asks for profile conditions (contact info, move-in window, budget), generates templates, starts the local server, and opens the UI. Edit `profile.yaml` directly or re-run `python setup.py` anytime.
 
 ### Facebook Marketplace
 
@@ -186,7 +181,7 @@ python run.py --filter-only
 python run.py --top 10            # print top 10 after run
 ```
 
-Suggested cron (every 6 hours): see `POLL_INTERVAL_HOURS` in `config.py`.
+Suggested cron interval: see `POLL_INTERVAL_HOURS` in `config.py`.
 
 ### Deploy the apply queue (optional)
 
@@ -200,15 +195,15 @@ The UI works read-only on Pages. **Mark sent / Skip** need the local API (or a t
 
 ## Telegram bot (optional)
 
-For phone-based alerts and drafts:
+For mobile alerts and drafts:
 
 ```bash
 python bot.py
 ```
 
-Open [@Rae_house_bot](https://t.me/Rae_house_bot) and tap **Start** once. Set `TELEGRAM_BOT_TOKEN` in `.env`.
+Set `TELEGRAM_BOT_TOKEN` in `.env`, then open your bot in Telegram and tap **Start** once.
 
-Useful commands: `/run` `/apply` `/sent` `/apps` `/mail` `/tram` `/help`
+Useful commands: `/run` `/apply` `/sent` `/apps` `/mail` `/help`
 
 One-shot alerts after a pipeline run:
 
@@ -227,7 +222,7 @@ python -c "import gmail_auth; print(gmail_auth.auth_status())"
 
 Set `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, and `GMAIL_ADDRESS` in `.env`. App Password (`GMAIL_APP_PASSWORD`) works as a fallback.
 
-**Craigslist reality:** listings rarely expose a direct email. Most outreach is copy-paste into Craigslist Reply or the apply queue's Gmail compose link. `/send` and `send_mail.py` only work when an address appears in the post text.
+**Craigslist note:** listings rarely expose a direct email. Most outreach is copy-paste into Craigslist Reply or the apply queue's Gmail compose link. `/send` and `send_mail.py` only work when an address appears in the post text.
 
 ## Project layout
 
@@ -240,8 +235,8 @@ bot.py                Telegram bot
 scout.py              Craigslist fetcher
 scout_facebook.py     Facebook Marketplace (Playwright)
 filter.py             Listing tags and Gemini scoring
-rank.py               Top-15 digest
-match.py              Hard filter for apply-queue "matches criteria"
+rank.py               Top-N digest
+match.py              Hard filter for apply-queue matches
 apply.py              Draft builder
 outreach.py           Batch drafts for top listings
 
@@ -292,8 +287,8 @@ digest.md             Generated ranked digest
 
 ## Search strategy
 
-1. **Cast a wide net** — Craigslist `private_room=1` + max price in URL; multiple Facebook search feeds.
-2. **Filter hard** — location zones, move-in window, room type, scams, stale posts (>1 week).
-3. **Rank by value** — lower rent + preferred neighborhoods + transit bonuses.
-4. **Act fast** — good rooms go within hours; the queue sorts by score and posted date.
+1. **Cast a wide net** — broad Craigslist/Facebook searches with a max price in the URL.
+2. **Filter hard** — location zones, move-in window, room type, scams, stale posts.
+3. **Rank by fit** — rent, preferred areas, transit, and other configured bonuses.
+4. **Act fast** — good rooms go quickly; the queue sorts by score and posted date.
 5. **View in person** — never send a deposit without seeing the room and meeting roommates.
