@@ -257,7 +257,7 @@ def backfill_facebook_junk_titles(*, limit: int = 5) -> dict[str, int]:
     if limit <= 0:
         return {"updated": 0, "unchanged": 0, "errors": 0, "total": 0}
     try:
-        from scout_facebook import refetch_junk_titles
+        from lfr.scout.facebook import refetch_junk_titles
 
         return refetch_junk_titles(limit=limit, headless=True)
     except Exception:
@@ -279,8 +279,8 @@ def backfill_facebook_details(
         return {"fetched": 0, "updated": 0, "unchanged": 0, "errors": 0, "rescored": 0}
 
     try:
-        from facebook_session import session_configured
-        from scout_facebook import DETAIL_DELAY_SEC, _playwright_context, fetch_listing_details
+        from lfr.scout.session import session_configured
+        from lfr.scout.facebook import DETAIL_DELAY_SEC, _playwright_context, fetch_listing_details
     except ImportError:
         return {"fetched": 0, "updated": 0, "unchanged": 0, "errors": 0, "rescored": 0}
 
@@ -294,7 +294,7 @@ def backfill_facebook_details(
 
     from playwright.sync_api import sync_playwright
 
-    from scout_facebook import _prepare_detail_page
+    from lfr.scout.facebook import _prepare_detail_page
 
     with sync_playwright() as playwright:
         browser, context = _playwright_context(playwright, headless=True)

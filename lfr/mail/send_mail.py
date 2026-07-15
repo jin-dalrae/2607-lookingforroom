@@ -26,17 +26,17 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-from apply import build_draft, load_profile, resolve_listing
-from db import (
+from lfr.apply import build_draft, load_profile, resolve_listing
+from lfr.db import (
     _listing_with_score,
     get_listing_by_id,
     init_db,
     mark_application_sent,
     upsert_application_draft,
 )
-from gmail_creds import SETUP_INSTRUCTIONS, auth_mode as gmail_auth_mode, gmail_configured
-from gmail_creds import gmail_address as _from_profile_address
-from gmail_creds import gmail_password as _gmail_password
+from lfr.mail.gmail_creds import SETUP_INSTRUCTIONS, auth_mode as gmail_auth_mode, gmail_configured
+from lfr.mail.gmail_creds import gmail_address as _from_profile_address
+from lfr.mail.gmail_creds import gmail_password as _gmail_password
 
 load_dotenv()
 
@@ -157,7 +157,7 @@ def _gmail_api_send(
     subject: str,
     body: str,
 ) -> None:
-    import gmail_auth
+    import lfr.mail.gmail_auth
 
     msg = _build_email_message(
         from_addr=from_addr,
@@ -359,7 +359,7 @@ def _resolve_cli_listing(
     top: int | None,
 ) -> dict[str, Any] | None:
     if top is not None:
-        from db import get_ranked_listing_at_position
+        from lfr.db import get_ranked_listing_at_position
 
         return get_ranked_listing_at_position(top)
     if listing_url:

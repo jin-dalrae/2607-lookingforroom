@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-from config import (
+from lfr.config import (
     AI_MODEL,
     LOCATION_PREFERENCES,
     SEARCH_CRITERIA,

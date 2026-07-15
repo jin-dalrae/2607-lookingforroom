@@ -13,14 +13,14 @@ import argparse
 import sys
 from datetime import datetime
 
-from config import POLL_INTERVAL_HOURS, SEARCH_CRITERIA
-from db import get_matching_listings, init_pipeline_tables
+from lfr.config import POLL_INTERVAL_HOURS, SEARCH_CRITERIA
+from lfr.db import get_matching_listings, init_pipeline_tables
 
 # Import pipeline stages (avoid naming conflict with stdlib 'filter')
-import scout
-import filter as listing_filter
-import rank
-import outreach
+import lfr.scout.craigslist as scout
+import lfr.score as listing_filter
+import lfr.rank as rank
+import lfr.archive.outreach as outreach
 
 
 STAGES = ("scout", "facebook", "zillow", "filter", "prune", "rank", "outreach")
@@ -44,11 +44,11 @@ def run_pipeline(stages: tuple[str, ...] = STAGES) -> dict[str, int]:
     if "facebook" in stages:
         print("▶ Facebook: polling Marketplace…")
         try:
-            import scout_facebook
-            from facebook_session import session_configured
+            import lfr.scout.facebook as scout_facebook
+            from lfr.scout.session import session_configured
 
             if not session_configured():
-                print("  → skipped (run: python scout_facebook.py login)")
+                print("  → skipped (run: python -m lfr.scout.facebook login)")
                 results["facebook"] = 0
             else:
                 fb_counts = scout_facebook.run_poll_cycle()
@@ -64,7 +64,7 @@ def run_pipeline(stages: tuple[str, ...] = STAGES) -> dict[str, int]:
     if "zillow" in stages:
         print("▶ Zillow: polling rentals…")
         try:
-            import scout_zillow
+            import lfr.scout.zillow as scout_zillow
 
             zillow_counts = scout_zillow.run_poll_cycle()
             results["zillow"] = zillow_counts.get("new", 0)
@@ -91,7 +91,7 @@ def run_pipeline(stages: tuple[str, ...] = STAGES) -> dict[str, int]:
         try:
             import os
 
-            from check_urls import prune_unavailable_listings
+            from lfr.check_urls import prune_unavailable_listings
 
             raw_limit = os.getenv("PRUNE_URL_LIMIT", "200").strip()
             limit = int(raw_limit) if raw_limit.isdigit() and int(raw_limit) > 0 else 200

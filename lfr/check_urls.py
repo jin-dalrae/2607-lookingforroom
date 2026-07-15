@@ -13,7 +13,7 @@ from typing import Any
 
 import requests
 
-from db import get_connection, init_db
+from lfr.db import get_connection, init_db
 from lfr.db.applications import get_application_by_listing_id, mark_application_rejected
 
 USER_AGENT = (

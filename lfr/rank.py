@@ -7,8 +7,8 @@ import json
 import sys
 from pathlib import Path
 
-from config import LOCATION_PREFERENCES, TRANSIT_PREFERENCES
-from db import get_matching_listings, init_db
+from lfr.config import LOCATION_PREFERENCES, TRANSIT_PREFERENCES
+from lfr.db import get_matching_listings, init_db
 
 from lfr.paths import PROJECT_ROOT
 DIGEST_PATH = PROJECT_ROOT / "digest.md"

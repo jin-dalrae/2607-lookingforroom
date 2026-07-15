@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import BUDGET_REALISM, LOCATION_PREFERENCES
+from lfr.config import BUDGET_REALISM, LOCATION_PREFERENCES
 
 from lfr.listings.location import (
     has_sf_primary_signal,

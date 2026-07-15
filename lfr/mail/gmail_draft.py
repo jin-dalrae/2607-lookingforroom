@@ -11,15 +11,15 @@ import time
 from email.mime.text import MIMEText
 from typing import Any
 
-from apply import create_application, load_profile, resolve_listing, standard_apply_message
-from db import (
+from lfr.apply import create_application, load_profile, resolve_listing, standard_apply_message
+from lfr.db import (
     get_first_unapplied_ranked_listing,
     get_ranked_listing_at_position,
     get_unapplied_ranked_listings,
     init_db,
 )
-from gmail_creds import SETUP_INSTRUCTIONS, gmail_address, gmail_configured, gmail_password
-from send_mail import extract_listing_email
+from lfr.mail.gmail_creds import SETUP_INSTRUCTIONS, gmail_address, gmail_configured, gmail_password
+from lfr.mail.send_mail import extract_listing_email
 
 GMAIL_IMAP_HOST = "imap.gmail.com"
 GMAIL_IMAP_PORT = 993

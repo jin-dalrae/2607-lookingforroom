@@ -6,8 +6,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from apply import create_application, load_profile
-from db import _is_short_term_listing, get_unapplied_ranked_listings, init_db
+from lfr.apply import create_application, load_profile
+from lfr.db import _is_short_term_listing, get_unapplied_ranked_listings, init_db
 
 OUTPUT_PATH = Path(__file__).resolve().parent.parent.parent / "outreach_drafts.txt"
 TOP_N = 3

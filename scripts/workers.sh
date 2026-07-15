@@ -84,7 +84,7 @@ start_api() {
   echo "Starting Apply API on :$API_PORT..."
   SCRAPE_AUTO_DEPLOY="${SCRAPE_AUTO_DEPLOY:-1}"
   nohup env SCRAPE_AUTO_DEPLOY="$SCRAPE_AUTO_DEPLOY" \
-    "$PYTHON" api.py --port "$API_PORT" --host 127.0.0.1 \
+    "$PYTHON" -m lfr.web.api --port "$API_PORT" --host 127.0.0.1 \
     >>"$LOG_DIR/api.log" 2>>"$LOG_DIR/api.err.log" &
   echo $! >"$API_PID_FILE"
   disown -h $! 2>/dev/null || true

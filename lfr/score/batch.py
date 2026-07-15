@@ -6,7 +6,7 @@ import argparse
 import sys
 from typing import Any
 
-from config import LOCATION_PREFERENCES
+from lfr.config import LOCATION_PREFERENCES
 
 from lfr.db import (
     count_listings,
@@ -178,7 +178,7 @@ def _gemini_enabled_by_env() -> bool:
     flag = os.getenv("USE_GEMINI", "").strip().lower()
     if flag not in ("1", "true", "yes", "on"):
         return False
-    from config import GCP_KEY, GENERATIVE_LANGUAGE_API_KEY
+    from lfr.config import GCP_KEY, GENERATIVE_LANGUAGE_API_KEY
 
     return bool((GCP_KEY or "").strip() or (GENERATIVE_LANGUAGE_API_KEY or "").strip())
 

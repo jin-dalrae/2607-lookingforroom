@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from config import BUDGET_REALISM
+from lfr.config import BUDGET_REALISM
 
 from lfr.score.criteria import (
     CRITERIA,

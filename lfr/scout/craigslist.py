@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from config import (
+from lfr.config import (
     AUGUST_ROOM_CRAIGSLIST_URL,
     CIVIC_CRAIGSLIST_URL,
     CRAIGSLIST_URL,
@@ -32,7 +32,7 @@ from config import (
     VAN_NESS_CRAIGSLIST_URL,
     OCEAN_AVE_CRAIGSLIST_URL,
 )
-from db import get_listing_by_url, init_db, upsert_listing
+from lfr.db import get_listing_by_url, init_db, upsert_listing
 
 SEARCH_URLS = [
     ("San Francisco", CRAIGSLIST_URL),
@@ -157,7 +157,7 @@ def fetch_listing_details(
         return _listing_id_from_url(url), "", None, False
 
     try:
-        from check_urls import page_indicates_unavailable
+        from lfr.check_urls import page_indicates_unavailable
 
         if page_indicates_unavailable(
             status_code=response.status_code,
@@ -178,7 +178,7 @@ def fetch_listing_details(
 
     soup = BeautifulSoup(response.text, "html.parser")
 
-    from listing_dates import parse_posted_at
+    from lfr.listings.dates import parse_posted_at
 
     post_id = _listing_id_from_url(url)
     posted_at: str | None = None
@@ -192,7 +192,7 @@ def fetch_listing_details(
             break
     time_el = soup.select_one("time.date.timeago")
     if time_el and time_el.get("datetime"):
-        from listing_dates import normalize_iso_timestamp
+        from lfr.listings.dates import normalize_iso_timestamp
 
         posting_blob = f"{posting_blob} {time_el['datetime']}".strip()
         posted_at = normalize_iso_timestamp(time_el["datetime"])
@@ -261,7 +261,7 @@ def run_poll_cycle() -> dict[str, int]:
                 listing_id = post_id or card.post_id
                 if unavailable:
                     try:
-                        from check_urls import mark_dead_listing
+                        from lfr.check_urls import mark_dead_listing
 
                         mark_dead_listing(listing_id)
                         counts["unavailable"] = counts.get("unavailable", 0) + 1

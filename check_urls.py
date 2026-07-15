@@ -1,14 +1,7 @@
-"""Backward-compatible CLI shim — implementation: `lfr.check_urls`."""
+#!/usr/bin/env python3
+"""CLI entrypoint → `lfr.check_urls`."""
 
-from __future__ import annotations
-
-import sys
-from importlib import import_module
-
-_mod = import_module("lfr.check_urls")
+from lfr.check_urls import main
 
 if __name__ == "__main__":
-    raise SystemExit(_mod.main())
-
-# When imported as `check_urls`, expose the real module object.
-sys.modules[__name__] = _mod
+    raise SystemExit(main())

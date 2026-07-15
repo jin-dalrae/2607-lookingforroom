@@ -12,5 +12,5 @@ Layout
 - ``lfr.archive`` — deprecated extras (Telegram bot, etc.)
 
 Root-level ``*.py`` files are thin shims so ``python run.py`` and
-``from config import …`` keep working without changing call sites.
+``from lfr.config import …`` keep working without changing call sites.
 """

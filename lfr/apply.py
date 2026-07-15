@@ -12,8 +12,8 @@ from urllib.parse import urlparse
 
 import yaml
 
-from channels import default_channel_for_listing, is_facebook_listing
-from db import (
+from lfr.channels import default_channel_for_listing, is_facebook_listing
+from lfr.db import (
     _listing_with_score,
     get_first_unapplied_ranked_listing,
     get_listing_by_id,
@@ -23,7 +23,7 @@ from db import (
     init_db,
     upsert_application_draft,
 )
-from rank import _move_in_from_flags, _size_from_flags
+from lfr.rank import _move_in_from_flags, _size_from_flags
 
 from lfr.paths import PROJECT_ROOT
 PROFILE_PATH = PROJECT_ROOT / "profile.yaml"
@@ -176,9 +176,9 @@ def resolve_listing(listing_ref: str) -> dict[str, Any] | None:
             return _listing_with_score(row["id"])
         if _is_facebook_marketplace_url(ref):
             try:
-                import filter as listing_filter
-                import rank as rank_module
-                from scout_facebook import ingest_url
+                import lfr.score as listing_filter
+                import lfr.rank as rank_module
+                from lfr.scout.facebook import ingest_url
 
                 details = ingest_url(ref)
                 listing_filter.run()

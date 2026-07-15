@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from config import LOCATION_PREFERENCES
+from lfr.config import LOCATION_PREFERENCES
 
 from lfr.listings.dates import is_stale_listing
 from lfr.listings.location import (

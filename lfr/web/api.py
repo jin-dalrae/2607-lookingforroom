@@ -14,9 +14,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlparse
 
-from apply import create_application, load_profile, standard_apply_message
-from channels import default_channel_for_listing, is_facebook_listing
-from db import (
+from lfr.apply import create_application, load_profile, standard_apply_message
+from lfr.channels import default_channel_for_listing, is_facebook_listing
+from lfr.db import (
     _listing_with_score,
     get_application_status_map,
     get_listing_by_id,
@@ -29,8 +29,8 @@ from db import (
     toggle_listing_liked,
     mark_listing_scam,
 )
-from gmail_creds import SETUP_INSTRUCTIONS, gmail_configured
-from gmail_draft import create_gmail_draft, format_result
+from lfr.mail.gmail_creds import SETUP_INSTRUCTIONS, gmail_configured
+from lfr.mail.gmail_draft import create_gmail_draft, format_result
 
 DEFAULT_PORT = 8787
 from lfr.paths import PROJECT_ROOT
@@ -359,8 +359,8 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         def worker() -> None:
             global _is_scraping, _last_scrape_status, _last_scrape_error
             try:
-                from run import run_pipeline
-                from queue_export import write_queue_data
+                from lfr.run import run_pipeline
+                from lfr.pipeline.export import write_queue_data
 
                 print("[api] Background scrape started…")
                 run_pipeline()

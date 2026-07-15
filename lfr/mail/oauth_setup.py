@@ -17,7 +17,7 @@ import sys
 
 from dotenv import load_dotenv
 
-import gmail_auth
+import lfr.mail.gmail_auth
 
 load_dotenv()
 
@@ -74,7 +74,7 @@ def main() -> int:
         return 1
 
     print("\nGmail OAuth ready. mail_monitor.py and send_mail.py will use the API.")
-    print("Verify: python -c \"import gmail_auth; print(gmail_auth.auth_status())\"")
+    print("Verify: python -c \"import lfr.mail.gmail_auth; print(gmail_auth.auth_status())\"")
     return 0
 
 

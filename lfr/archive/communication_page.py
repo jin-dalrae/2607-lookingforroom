@@ -11,15 +11,15 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from apply import load_profile
-from channels import (
+from lfr.apply import load_profile
+from lfr.channels import (
     channel_icon,
     channel_label,
     default_channel_for_listing,
     is_facebook_listing,
     normalize_channel,
 )
-from db import (
+from lfr.db import (
     get_application_stats,
     get_channel_stats,
     get_communication_records,
@@ -667,7 +667,7 @@ def run(*, check_mail: bool = False, open_browser: bool = False) -> Path:
     init_db()
     if check_mail:
         try:
-            import mail_monitor
+            import lfr.mail.mail_monitor
 
             if mail_monitor.gmail_configured():
                 mail_monitor.check_inbox()

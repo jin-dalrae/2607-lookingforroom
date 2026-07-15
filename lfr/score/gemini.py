@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from config import AI_MODEL, GCP_KEY, GENERATIVE_LANGUAGE_API_KEY
+from lfr.config import AI_MODEL, GCP_KEY, GENERATIVE_LANGUAGE_API_KEY
 
 from lfr.score.criteria import CRITERIA, MODEL_FALLBACKS
 

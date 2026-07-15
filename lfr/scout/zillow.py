@@ -10,8 +10,8 @@ from dataclasses import dataclass
 
 from playwright.sync_api import sync_playwright
 
-from config import ZILLOW_SEARCHES
-from db import init_db, upsert_listing
+from lfr.config import ZILLOW_SEARCHES
+from lfr.db import init_db, upsert_listing
 
 PRICE_RE = re.compile(r"\$\s*([\d,]+)")
 USER_AGENT = (

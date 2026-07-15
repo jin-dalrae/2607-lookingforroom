@@ -31,8 +31,8 @@ from urllib.parse import urlparse
 import yaml
 from dotenv import load_dotenv
 
-import notify
-from db import (
+import lfr.archive.notify
+from lfr.db import (
     get_listing_by_id,
     get_sent_applications,
     init_pipeline_tables,
@@ -106,7 +106,7 @@ class CheckResult:
     error: str | None = None
 
 
-from gmail_creds import (
+from lfr.mail.gmail_creds import (
     SETUP_INSTRUCTIONS as GMAIL_SETUP,
     auth_mode as gmail_auth_mode,
     gmail_address as _default_gmail_address,
@@ -120,7 +120,7 @@ SETUP_INSTRUCTIONS = GMAIL_SETUP
 
 def _oauth_configured() -> bool:
     try:
-        import gmail_auth
+        import lfr.mail.gmail_auth
 
         return gmail_auth.token_valid()
     except ImportError:
@@ -467,7 +467,7 @@ def check_inbox(*, dry_run: bool | None = None) -> CheckResult:
             client = _connect_imap()
             candidates = _fetch_candidate_emails(client)
         elif use_oauth:
-            import gmail_auth
+            import lfr.mail.gmail_auth
 
             gmail_service = gmail_auth.get_gmail_service()
             candidates = _fetch_candidate_emails_api(gmail_service)

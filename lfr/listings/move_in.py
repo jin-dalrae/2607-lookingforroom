@@ -7,7 +7,7 @@ import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from config import SEARCH_CRITERIA
+from lfr.config import SEARCH_CRITERIA
 
 _SORT_UNKNOWN = 999_999_999
 

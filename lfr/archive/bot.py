@@ -20,21 +20,21 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
-import notify
-from channels import (
+import lfr.archive.notify
+from lfr.channels import (
     channel_icon,
     channel_label,
     default_channel_for_listing,
     is_facebook_listing,
     parse_channel_args,
 )
-from apply import (
+from lfr.apply import (
     create_application,
     format_apply_message,
     format_prep_message,
     load_profile,
 )
-from db import (
+from lfr.db import (
     count_listings,
     get_application_stats,
     get_connection,
@@ -54,7 +54,7 @@ from db import (
     update_application_status,
     _listing_with_score,
 )
-from rank import (
+from lfr.rank import (
     _move_in_display,
     _parse_flags_payload,
     _rent_period_display,
@@ -62,11 +62,11 @@ from rank import (
     _transit_tier,
     _transit_label,
 )
-from run import run_pipeline
-import filter as listing_filter
-import mail_monitor
-import rank as rank_module
-import send_mail
+from lfr.run import run_pipeline
+import lfr.score as listing_filter
+import lfr.mail.mail_monitor
+import lfr.rank as rank_module
+import lfr.mail.send_mail
 
 load_dotenv()
 
@@ -187,7 +187,7 @@ def _listings_by_transit_tier(tier: str, limit: int = 5) -> list[dict[str, Any]]
 
 
 def _status_message() -> str:
-    from facebook_session import session_configured
+    from lfr.scout.session import session_configured
 
     init_pipeline_tables()
     total = count_listings()
@@ -242,7 +242,7 @@ def _command_args(text: str) -> tuple[str, list[str]]:
 
 
 def _format_gmail_status_message() -> str:
-    import gmail_auth
+    import lfr.mail.gmail_auth
 
     status = gmail_auth.auth_status()
     mode = mail_monitor.gmail_auth_mode()
@@ -352,7 +352,7 @@ def _resolve_listing_ref(ref: str) -> dict | None:
         listing = get_listing_by_url(ref)
         if listing is None:
             path = ref.rstrip("/").split("/")[-1]
-            from db import get_listing_by_id
+            from lfr.db import get_listing_by_id
 
             listing = get_listing_by_id(path)
         return listing
@@ -483,7 +483,7 @@ def handle_command(chat_id: int | str, text: str) -> None:
         return
 
     if command == "/fb" or command.startswith("/fb "):
-        from facebook_session import login_instructions, session_configured
+        from lfr.scout.session import login_instructions, session_configured
 
         sub = command.split(maxsplit=1)[1].strip().lower() if " " in command else ""
         if sub == "poll":
@@ -492,7 +492,7 @@ def handle_command(chat_id: int | str, text: str) -> None:
                 return
             reply(chat_id, "Polling Facebook Marketplace…")
             try:
-                import scout_facebook
+                import lfr.scout.facebook
 
                 counts = scout_facebook.run_poll_cycle()
                 listing_filter.run()
@@ -517,7 +517,7 @@ def handle_command(chat_id: int | str, text: str) -> None:
         try:
             init_pipeline_tables()
             try:
-                import batch_apply
+                import lfr.archive.batch_apply
 
                 count, html_path, _ = batch_apply.run(top=5)
                 if count > 0 and html_path.exists():
@@ -584,7 +584,7 @@ def handle_command(chat_id: int | str, text: str) -> None:
             if listing is None:
                 reply(chat_id, "No unapplied listing found for that rank.")
                 return
-            from gmail_draft import create_gmail_draft, format_result
+            from lfr.mail.gmail_draft import create_gmail_draft, format_result
 
             profile = load_profile()
             create_application(listing["id"], profile)
@@ -850,7 +850,7 @@ def handle_command(chat_id: int | str, text: str) -> None:
 
     if command == "/comm":
         try:
-            import communication_page
+            import lfr.archive.communication_page
 
             init_pipeline_tables()
             path = communication_page.run(

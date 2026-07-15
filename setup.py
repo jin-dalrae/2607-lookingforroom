@@ -149,7 +149,7 @@ def main():
     print("\nInitializing database tables...")
     try:
         subprocess.run(
-            [sys.executable, "-c", "from db import init_pipeline_tables; init_pipeline_tables()"],
+            [sys.executable, "-c", "from lfr.db import init_pipeline_tables; init_pipeline_tables()"],
             check=True,
             capture_output=True,
             text=True

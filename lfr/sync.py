@@ -6,8 +6,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from channels import default_channel_for_listing, normalize_channel, parse_channel_args
-from db import (
+from lfr.channels import default_channel_for_listing, normalize_channel, parse_channel_args
+from lfr.db import (
     get_application_stats,
     get_listing_by_id,
     get_listing_by_url,
@@ -159,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             listing_ids = []
             for pos in positions:
-                from db import get_ranked_listing_at_position
+                from lfr.db import get_ranked_listing_at_position
 
                 listing = get_ranked_listing_at_position(pos)
                 if listing is None:

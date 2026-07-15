@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from queue_export import write_queue_data
+from lfr.pipeline.export import write_queue_data
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from config import LOCATION_ALLOWED, LOCATION_EXCLUDE
+from lfr.config import LOCATION_ALLOWED, LOCATION_EXCLUDE
 
 # Cities too far from SF/Oakland BART corridor — hard reject in matches and pool.
 FAR_EAST_BAY_EXCLUDE = (

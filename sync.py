@@ -1,14 +1,7 @@
-"""Backward-compatible CLI shim — implementation: `lfr.sync`."""
+#!/usr/bin/env python3
+"""CLI entrypoint → `lfr.sync`."""
 
-from __future__ import annotations
-
-import sys
-from importlib import import_module
-
-_mod = import_module("lfr.sync")
+from lfr.sync import main
 
 if __name__ == "__main__":
-    raise SystemExit(_mod.main())
-
-# When imported as `sync`, expose the real module object.
-sys.modules[__name__] = _mod
+    raise SystemExit(main())

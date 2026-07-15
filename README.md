@@ -208,31 +208,30 @@ Set `GMAIL_OAUTH_CLIENT_ID`, `GMAIL_OAUTH_CLIENT_SECRET`, and `GMAIL_ADDRESS` in
 
 ## Project layout
 
-Implementation lives under `lfr/`. Root-level `*.py` files are thin CLI/import shims so existing commands (`python run.py`, `python api.py`, …) keep working.
+All application code lives under `lfr/`. Root `*.py` files are short CLI entrypoints only.
 
 ```
-profile.yaml          Applicant profile and message template
-run.py                CLI pipeline orchestrator
-api.py                Local apply API
 setup.py              Interactive setup
-listings_page.py      Export CLI → site/data.json
+run.py                Pipeline: scout → score → rank
+api.py                Local apply API
+listings_page.py      Export queue → site/data.json
+scout.py / filter.py / rank.py / check_urls.py / …
+
+profile.yaml          Applicant profile + message template
 
 lfr/
-  config.py           Search criteria, URLs, location zones
-  apply.py            Draft builder
-  rank.py             Top-N digest
-  check_urls.py       Prune unavailable posts
-  paths.py            Project root paths
-  scout/              Craigslist / Facebook / Zillow
+  config.py           Search criteria, URLs, zones
+  apply.py rank.py check_urls.py paths.py
+  scout/              Craigslist, Facebook, Zillow
   mail/               Optional Gmail helpers
   web/api.py          HTTP apply API
   db/ listings/ pipeline/ score/
-  archive/            Deprecated extras (Telegram bot, etc.)
+  archive/            Deprecated extras
 
-site/                 Apply queue static UI
-scripts/workers.sh    Start/stop detached UI + API
+site/                 Apply queue UI
+scripts/workers.sh    Start/stop UI + API
 
-listings.db           Runtime database (gitignored)
+listings.db           Runtime SQLite (gitignored)
 ```
 
 ## Daily workflow

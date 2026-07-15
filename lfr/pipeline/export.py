@@ -10,9 +10,9 @@ from datetime import datetime, timezone
 from typing import Any
 from urllib.parse import quote
 
-from apply import load_profile, standard_apply_message
-from channels import is_facebook_listing
-from db import (
+from lfr.apply import load_profile, standard_apply_message
+from lfr.channels import is_facebook_listing
+from lfr.db import (
     get_application_by_listing_id,
     get_queue_export_listings,
     init_db,
@@ -33,8 +33,8 @@ from lfr.listings.move_in import extract_move_in_label, move_in_sort_value
 from lfr.listings.poster import extract_poster_name
 from lfr.listings.size import extract_sqft_from_post, sqft_sort_value
 from lfr.pipeline.match import listing_matches_criteria
-from map_coords import resolve_listing_coords
-from send_mail import extract_listing_email
+from lfr.map_coords import resolve_listing_coords
+from lfr.mail.send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "site" / "data.json"
 EXPORT_LIMIT = 500
@@ -572,7 +572,7 @@ def _deadline_label(profile: dict[str, Any]) -> str:
             return label
 
     try:
-        from config import SEARCH_CRITERIA
+        from lfr.config import SEARCH_CRITERIA
 
         end = SEARCH_CRITERIA.get("move_in_end")
         if end is not None and hasattr(end, "month") and hasattr(end, "day"):
@@ -644,7 +644,7 @@ def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
 
 def write_queue_data(path=None, *, run_backfill: bool = True) -> __import__("pathlib").Path:
     if run_backfill:
-        from db import (
+        from lfr.db import (
             backfill_facebook_details,
             backfill_facebook_junk_titles,
             backfill_move_in_dates,
@@ -672,7 +672,7 @@ def write_queue_data(path=None, *, run_backfill: bool = True) -> __import__("pat
                 detail_stats["rescored"] += round_stats.get("rescored", 0)
                 if not round_stats.get("updated"):
                     break
-        import filter as listing_filter
+        import lfr.score as listing_filter
 
         if detail_stats.get("updated") or detail_stats.get("rescored"):
             listing_filter.run(use_gemini=False)

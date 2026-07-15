@@ -328,7 +328,7 @@ def mark_applications_sent_bulk(
 
 def mark_all_drafts_sent(*, channel: str | None = None) -> int:
     """Mark every draft application as sent (catch-up after batch apply)."""
-    from channels import default_channel_for_listing
+    from lfr.channels import default_channel_for_listing
 
     init_db()
     with get_connection() as conn:
@@ -414,7 +414,7 @@ def upsert_application_draft(
     if channel is None and existing and existing.get("channel"):
         channel = existing["channel"]
     elif channel is None:
-        from channels import default_channel_for_listing
+        from lfr.channels import default_channel_for_listing
 
         channel = default_channel_for_listing(get_listing_by_id(listing_id))
 

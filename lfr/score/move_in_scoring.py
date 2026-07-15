@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from config import MOVE_IN_SCORING
+from lfr.config import MOVE_IN_SCORING
 
 from lfr.listings.move_in import is_utility_fraction, move_in_after_cutoff_hit
 from lfr.score.criteria import (

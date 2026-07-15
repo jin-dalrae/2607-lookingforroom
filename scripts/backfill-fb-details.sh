@@ -17,7 +17,7 @@ if [[ "${2:-}" == "--all" ]]; then
 fi
 
 echo "Fetching Facebook details for up to ${LIMIT} listing(s) (~30s each)..."
-"$PYTHON" scout_facebook.py backfill --limit "$LIMIT" $ALL_FLAG
+"$PYTHON" -m lfr.scout.facebook backfill --limit "$LIMIT" $ALL_FLAG
 
 DETAIL_BACKFILL_LIMIT=0 POSTED_BACKFILL_LIMIT=0 FB_TITLE_BACKFILL_LIMIT=0 "$PYTHON" listings_page.py
 echo "Queue export updated."

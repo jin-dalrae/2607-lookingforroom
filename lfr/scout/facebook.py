@@ -11,9 +11,9 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-from config import FACEBOOK_MARKETPLACE_SEARCHES, SEARCH_CRITERIA
-from db import get_listing_by_url, init_db, upsert_listing
-from facebook_session import login_instructions, run_interactive_login, session_configured, state_path
+from lfr.config import FACEBOOK_MARKETPLACE_SEARCHES, SEARCH_CRITERIA
+from lfr.db import get_listing_by_url, init_db, upsert_listing
+from lfr.scout.session import login_instructions, run_interactive_login, session_configured, state_path
 
 ITEM_ID_RE = re.compile(r"/marketplace/item/(\d+)")
 PRICE_RE = re.compile(r"\$\s*([\d,]+)")
@@ -180,13 +180,13 @@ def _is_junk_title(title: str) -> bool:
 
 
 def is_junk_facebook_title(title: str) -> bool:
-    from listing_description import is_junk_facebook_title as _is_junk_fb_title
+    from lfr.listings.description import is_junk_facebook_title as _is_junk_fb_title
 
     return _is_junk_fb_title(title) or _is_junk_title(title)
 
 
 def _parse_card_text(text: str) -> tuple[str, int | None, str, str]:
-    from locations import parse_location_line
+    from lfr.listings.location import parse_location_line
 
     lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
     price = _parse_price(text)
@@ -225,7 +225,7 @@ def _parse_card_text(text: str) -> tuple[str, int | None, str, str]:
 def _card_neighborhood(card: FacebookCard) -> str:
     """Prefer the rental city from the search card over the search-feed label."""
     if card.location_line:
-        from locations import resolve_neighborhood_from_text
+        from lfr.listings.location import resolve_neighborhood_from_text
 
         blob = _card_description_blob(location_line=card.location_line) or ""
         return resolve_neighborhood_from_text(description=blob, fallback=card.location_line)
@@ -442,7 +442,7 @@ def _extract_labeled_value_from_page(page: Any, labels: tuple[str, ...]) -> str:
 
 def _extract_rental_location_from_page(page: Any) -> str:
     """Read the Rental location field from a Marketplace item page."""
-    from locations import is_junk_location_line, parse_location_line
+    from lfr.listings.location import is_junk_location_line, parse_location_line
 
     candidate = _extract_labeled_value_from_page(page, ("Rental location",))
     if candidate and not is_junk_location_line(candidate):
@@ -452,7 +452,7 @@ def _extract_rental_location_from_page(page: Any) -> str:
 
 def _extract_move_in_from_page(page: Any) -> str:
     """Read availability / move-in from a Marketplace rental PDP."""
-    from listing_move_in import is_boilerplate_move_in_phrase
+    from lfr.listings.move_in import is_boilerplate_move_in_phrase
 
     for label_group in (
         ("Availability", "Available", "Date available"),
@@ -527,8 +527,8 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
         except Exception:
             title = "Facebook Marketplace listing"
 
-    from listing_dates import parse_posted_at
-    from locations import (
+    from lfr.listings.dates import parse_posted_at
+    from lfr.listings.location import (
         clean_listing_description,
         parse_facebook_listing_fields,
         resolve_neighborhood_from_text,
@@ -580,7 +580,7 @@ def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
 
     posted_at = parse_posted_at(body_text or raw_description or "")
 
-    from listing_move_in import resolve_move_in_date_storage
+    from lfr.listings.move_in import resolve_move_in_date_storage
 
     move_in_date = resolve_move_in_date_storage(
         {
@@ -625,7 +625,7 @@ def _merge_card_and_details(card: FacebookCard, details: dict[str, Any]) -> dict
 
 
 def _needs_detail_fetch(card: FacebookCard) -> bool:
-    from listing_description import needs_description_backfill
+    from lfr.listings.description import needs_description_backfill
 
     existing = get_listing_by_url(card.url)
     if existing is None:
@@ -730,7 +730,7 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                                 source="facebook",
                             )
                         else:
-                            from listing_dates import parse_posted_at
+                            from lfr.listings.dates import parse_posted_at
 
                             card_description = _card_description_blob(
                                 location_line=card.location_line,
@@ -765,7 +765,7 @@ def refetch_junk_titles(*, limit: int | None = None, headless: bool = True) -> d
     """Re-fetch Facebook listings stuck with placeholder titles."""
     from playwright.sync_api import sync_playwright
 
-    from db import get_connection, init_db, upsert_listing
+    from lfr.db import get_connection, init_db, upsert_listing
 
     init_db()
     query = """
@@ -809,7 +809,7 @@ def refetch_junk_titles(*, limit: int | None = None, headless: bool = True) -> d
                     if is_junk_facebook_title(title):
                         counts["unchanged"] += 1
                         continue
-                    from db import delete_score
+                    from lfr.db import delete_score
 
                     delete_score(details["listing_id"])
                     outcome = upsert_listing(
@@ -890,8 +890,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "ingest":
         try:
             details = ingest_url(args.url, headless=not args.headed)
-            import filter as listing_filter
-            import rank as rank_module
+            import lfr.score as listing_filter
+            import lfr.rank as rank_module
 
             print(
                 f"{details['outcome']}: {details['title']} "
@@ -921,7 +921,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"{counts['errors']} errors"
             )
             if counts["updated"]:
-                import filter as listing_filter
+                import lfr.score as listing_filter
 
                 listing_filter.run(rescore_all=True, use_gemini=False)
             return 0 if not counts["errors"] else 1
@@ -934,7 +934,7 @@ def main(argv: list[str] | None = None) -> int:
             print(login_instructions(), file=sys.stderr)
             return 1
         try:
-            from db import backfill_facebook_details, purge_premature_facebook_scores
+            from lfr.db import backfill_facebook_details, purge_premature_facebook_scores
 
             purged = purge_premature_facebook_scores()
             if purged:
@@ -949,7 +949,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"rescored={stats.get('rescored', 0)}"
             )
             if stats.get("rescored", 0) or stats.get("updated", 0):
-                import filter as listing_filter
+                import lfr.score as listing_filter
 
                 listing_filter.run()
             return 0 if not stats["errors"] else 1
@@ -976,8 +976,8 @@ def main(argv: list[str] | None = None) -> int:
             if counts["errors"]:
                 print(f"Errors: {counts['errors']}", file=sys.stderr)
             if total:
-                import filter as listing_filter
-                import rank as rank_module
+                import lfr.score as listing_filter
+                import lfr.rank as rank_module
 
                 print("▶ Filter + rank for Facebook listings…")
                 listing_filter.run()

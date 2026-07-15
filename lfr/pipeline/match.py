@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from config import SEARCH_CRITERIA
+from lfr.config import SEARCH_CRITERIA
 from lfr.listings.dates import is_stale_listing
 from lfr.listings.move_in import listing_has_move_in_after_cutoff
 from lfr.listings.location import (

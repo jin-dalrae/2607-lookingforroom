@@ -10,8 +10,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-import notify
-from db import get_matching_listings, get_queue_export_listings, get_ranked_listings, init_db
+import lfr.archive.notify
+from lfr.db import get_matching_listings, get_queue_export_listings, get_ranked_listings, init_db
 
 
 def send_telegram_digest(*, status: bool = False) -> int:

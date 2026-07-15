@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from config import LOCATION_PREFERENCES, TRANSIT_PREFERENCES
+from lfr.config import LOCATION_PREFERENCES, TRANSIT_PREFERENCES
 
 from lfr.score.criteria import (
     _BART_TERMS,
