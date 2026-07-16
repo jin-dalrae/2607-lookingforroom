@@ -11,20 +11,21 @@ from dotenv import load_dotenv
 load_dotenv()
 
 SETUP_INSTRUCTIONS = """
-Gmail not configured. Add to .env:
+Gmail not configured. App Password is required (not your normal Gmail login).
+
+Add to .env:
 
   GMAIL_ADDRESS=your-email@gmail.com
   GMAIL_PASSWORD=your-16-char-app-password
 
-How to get the password (NOT your normal Gmail login):
+How to create GMAIL_PASSWORD:
   1. Enable 2-Step Verification: https://myaccount.google.com/security
-  2. Create App Password: https://myaccount.google.com/apppasswords
-     (Mail → name it "Housing bot" → copy 16-character code)
-  3. Paste that code as GMAIL_PASSWORD in .env (spaces OK)
+  2. App passwords: https://myaccount.google.com/apppasswords
+     (Mail → name it "Looking for Room" → copy 16-character code)
+  3. Paste as GMAIL_PASSWORD (spaces OK). Legacy key GMAIL_APP_PASSWORD also works.
 
-Then:
-  python mail_monitor.py          # check inbox for landlord replies
-  python mail_monitor.py --loop 300
+Verify: python -c "from lfr.mail.gmail_creds import gmail_configured; print(gmail_configured())"
+Then: python mail_monitor.py
 """.strip()
 
 

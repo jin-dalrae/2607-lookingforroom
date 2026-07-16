@@ -76,6 +76,25 @@ def main():
             print("Please enter a valid integer for budget.")
 
     email_subject = prompt_input("6. Email Subject Line", current_profile.get("email_subject", "Room Rental Inquiry"))
+
+    # Gmail App Password (required for drafts + reply monitoring)
+    print("\nGmail App Password is required (not your normal Gmail password).")
+    print("  1. Enable 2-Step Verification: https://myaccount.google.com/security")
+    print("  2. Create App Password: https://myaccount.google.com/apppasswords")
+    print("  3. App = Mail → copy the 16-character code")
+    existing_pwd = ""
+    env_path_pre = Path(".env")
+    if env_path_pre.exists():
+        for line in env_path_pre.read_text(encoding="utf-8").splitlines():
+            if line.startswith("GMAIL_PASSWORD=") or line.startswith("GMAIL_APP_PASSWORD="):
+                existing_pwd = line.split("=", 1)[-1].strip().strip('"').strip("'")
+                break
+    gmail_password = prompt_input(
+        "7. Gmail App Password (16 chars; leave blank to keep existing)",
+        existing_pwd or "",
+    )
+    if not (gmail_password or existing_pwd):
+        print("Warning: without GMAIL_PASSWORD, Gmail drafts and mail monitoring will not work.")
     
     # Message templates
     print("\nDrafting your outreach templates...")
@@ -134,16 +153,37 @@ def main():
     
     print(f"\nSaved profile details to: {profile_path.resolve()}")
 
-    # Setup .env if not exists
+    # Always ensure .env has Gmail address + app password (required)
     env_path = Path(".env")
     env_example_path = Path(".env.example")
     if not env_path.exists():
         if env_example_path.exists():
             shutil.copy(env_example_path, env_path)
-            print("Copied .env.example to .env (Update your API keys there when ready).")
         else:
-            env_path.write_text("DB_PATH=listings.db\n")
-            print("Created a basic .env file.")
+            env_path.write_text("", encoding="utf-8")
+
+    def _upsert_env(path: Path, key: str, value: str) -> None:
+        lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+        out: list[str] = []
+        found = False
+        for line in lines:
+            if line.startswith(f"{key}="):
+                out.append(f"{key}={value}")
+                found = True
+            else:
+                out.append(line)
+        if not found:
+            out.append(f"{key}={value}")
+        path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8")
+
+    _upsert_env(env_path, "GMAIL_ADDRESS", email)
+    pwd_to_write = (gmail_password or existing_pwd).replace(" ", "")
+    if pwd_to_write:
+        _upsert_env(env_path, "GMAIL_PASSWORD", pwd_to_write)
+        print(f"Updated {env_path.resolve()} with GMAIL_ADDRESS and GMAIL_PASSWORD.")
+    else:
+        _upsert_env(env_path, "GMAIL_PASSWORD", "")
+        print(f"Updated {env_path.resolve()} with GMAIL_ADDRESS (password still empty).")
 
     # Initialize SQLite DB tables
     print("\nInitializing database tables...")
