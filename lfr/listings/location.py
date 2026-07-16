@@ -396,6 +396,20 @@ def is_config_excluded_location(row: dict[str, Any]) -> bool:
             return True
         if not has_sf_primary_signal(primary) and mention_place(blob, term):
             return True
+    # FB / thin metadata: hood often only appears in description body
+    for term in LOCATION_EXCLUDE.get("full_text_terms", ()):
+        if mention_place(blob, term) or mention_place(hood, term) or mention_place(primary, term):
+            return True
+    # ZIP-based hard excludes (outer SF when neighborhood label is missing)
+    zip_code = (ctx.get("zip") or "").strip()
+    exclude_zips = LOCATION_EXCLUDE.get("zips") or ()
+    if zip_code and zip_code in exclude_zips:
+        return True
+    for z in exclude_zips:
+        if z in primary or z in hood or z in blob:
+            # Avoid false hits inside longer numbers
+            if re.search(rf"(?<!\d){re.escape(z)}(?!\d)", f"{primary} {hood} {blob}"):
+                return True
     return False
 
 
@@ -477,9 +491,10 @@ def is_west_oakland_location(
     rental_location: str = "",
     city: str = "",
 ) -> bool:
-    terms = LOCATION_ALLOWED["west_oakland"]["terms"]
+    """Detect West Oakland (no longer an allowed zone — used for exclusion/flags)."""
+    terms = ("west oakland", "oakland west")
     city_low = (city or "").strip().lower()
-    if city_low == "west oakland":
+    if city_low in ("west oakland", "oakland west"):
         return True
     if rental_location and mentions_any_place(rental_location.lower(), terms):
         return True
@@ -492,9 +507,10 @@ def is_downtown_oakland_location(
     rental_location: str = "",
     city: str = "",
 ) -> bool:
-    terms = LOCATION_ALLOWED["downtown_oakland"]["terms"]
+    """Detect Downtown Oakland (no longer an allowed zone — used for exclusion/flags)."""
+    terms = ("downtown oakland", "uptown oakland", "oakland downtown")
     city_low = (city or "").strip().lower()
-    if city_low == "downtown oakland":
+    if city_low in ("downtown oakland", "uptown oakland"):
         return True
     if rental_location and mentions_any_place(rental_location.lower(), terms):
         return True
@@ -507,11 +523,11 @@ def is_south_san_francisco_city(
     rental_location: str = "",
     city: str = "",
 ) -> bool:
-    """South San Francisco city — not southern SF neighborhoods."""
+    """South San Francisco city — not southern SF neighborhoods (hard-excluded)."""
+    terms = ("south san francisco", "south san fran", "ssf", "94080", "94083")
     city_low = (city or "").strip().lower()
-    if city_low == "south san francisco":
+    if city_low in ("south san francisco", "ssf"):
         return True
-    terms = LOCATION_ALLOWED["south_san_francisco"]["terms"]
     if rental_location and mentions_any_place(rental_location.lower(), terms):
         return True
     if mention_place(primary, "south san francisco"):
@@ -532,20 +548,15 @@ def allowed_location_zone(row: dict[str, Any]) -> str | None:
         "rental_location": ctx["rental_location"],
         "city": ctx["city"],
     }
+    # SSF / Oakland / Emeryville are hard-excluded — never return as allowed zones
     if is_south_san_francisco_city(**common):
-        return "south_san_francisco"
+        return None
     if is_san_francisco_location(
         **common,
         full=ctx["full"],
         url=ctx["url"],
     ):
         return "san_francisco"
-    if is_emeryville_location(**common):
-        return "emeryville"
-    if is_west_oakland_location(**common):
-        return "west_oakland"
-    if is_downtown_oakland_location(**common):
-        return "downtown_oakland"
     return None
 
 
@@ -609,18 +620,16 @@ _SEARCH_AREA_LABELS: dict[str, str] = {
     "sf bedroom rent": "San Francisco",
     "sf sublet": "San Francisco",
     "sf roommate": "San Francisco",
+    # Legacy labels (no longer scouted / not allowed zones)
+    "south sf room": "South San Francisco",
     "west oakland room": "West Oakland",
     "downtown oakland room": "Downtown Oakland",
     "emeryville room": "Emeryville",
-    "south sf room": "South San Francisco",
 }
 
 _DISPLAY_AREA_TO_ZONE: dict[str, str] = {
     "San Francisco": "san_francisco",
-    "West Oakland": "west_oakland",
-    "Downtown Oakland": "downtown_oakland",
-    "Emeryville": "emeryville",
-    "South San Francisco": "south_san_francisco",
+    # South SF / Oakland / Emeryville deliberately omitted — not allowed zones
 }
 
 

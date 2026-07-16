@@ -38,7 +38,7 @@ def send_telegram_digest(*, status: bool = False) -> int:
     if not status:
         return 0
 
-    export = get_queue_export_listings(pool_limit=500)
+    export = get_queue_export_listings(pool_limit=None)
     matches = get_matching_listings(limit=10, exclude_scams=True)
     fb = sum(1 for row in export if (row.get("source") or "") == "facebook")
     lines = [

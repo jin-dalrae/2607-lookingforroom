@@ -62,51 +62,77 @@ SEARCH_CRITERIA = {
     ),
     "current_location": "SOMA",
     "location": [
-        "San Francisco (whole city)",
-        "West Oakland",
-        "Downtown Oakland",
-        "South San Francisco",
+        "San Francisco — central focus (see preferred list)",
     ],
     "location_note": (
-        "Only these areas: all of San Francisco, West Oakland, Downtown "
-        "Oakland, South San Francisco. Strongly prefer SF with Muni Metro/tram within "
-        "~10 min walk. Reject other East Bay (Berkeley, Emeryville, Temescal, Lake Merritt, "
-        "Hayward, etc.), Daly City, male-only households, and listings over a week old."
+        "Focus SF: Dogpatch, Noe Valley, Mission, Hayes Valley, Castro, Bernal Heights, "
+        "near Panhandle, Marina, Chinatown, North Beach, Russian Hill, and nearby downtown "
+        "(SOMA, South Beach, Mission Bay, Civic Center, Financial District, Embarcadero, "
+        "Potrero Hill). "
+        "Hard-reject Richmond, Sunset/Parkside, Ingleside, Excelsior, all of Oakland, "
+        "Emeryville, and South San Francisco. "
+        "Reject other East Bay, Daly City, male-only households, listings over a week old. "
+        "Prefer Muni Metro/tram or Caltrain within ~10 min walk."
     ),
     "transit_priority": (
         "Bonus only for Muni Metro/tram or Caltrain within ~10 min walk — not BART. "
         "Generic Muni bus is a weaker signal."
     ),
     "neighborhoods_preferred": [
+        "Dogpatch",
+        "Noe Valley",
+        "Inner Mission",
+        "Mission District",
+        "Hayes Valley",
+        "Castro",
+        "Bernal Heights",
+        "Panhandle",
+        "Near Panhandle",
+        "Lower Haight",
+        "NOPA",
+        "Marina",
+        "Chinatown",
+        "North Beach",
+        "Russian Hill",
         "SOMA",
         "South Beach",
         "Mission Bay",
+        "Potrero Hill",
         "Financial District",
         "Civic Center",
-        "Hayes Valley",
-        "Inner Mission",
-        "Potrero Hill",
         "Embarcadero",
         "Downtown SF",
-        "Castro",
-        "West Oakland",
-        "Downtown Oakland",
-        "South San Francisco",
     ],
     "neighborhoods_penalize": [
+        "Richmond",
+        "Outer Richmond",
+        "Inner Richmond",
+        "Sunset",
         "Outer Sunset",
+        "Inner Sunset",
         "Parkside",
         "Ingleside",
         "Excelsior",
+        "Oakland",
+        "West Oakland",
+        "Downtown Oakland",
+        "Emeryville",
+        "South San Francisco",
         "Oakland east",
         "East Oakland",
         "San Leandro",
         "Daly City",
     ],
     "penalize": [
+        "Richmond (SF)",
+        "Sunset / Parkside",
+        "Ingleside",
+        "Excelsior",
+        "Oakland (all)",
+        "Emeryville",
+        "South San Francisco",
         "Berkeley",
-        "East Bay outside allowed zones",
-        "Oakland (except West Oakland)",
+        "East Bay",
         "Daly City",
         "male-only households",
         "obvious scams",
@@ -131,9 +157,16 @@ FINANCIAL_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=financial+district+room"
 EMBARCADERO_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=embarcadero+room"
 HAYES_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=hayes+valley+room"
 INNER_MISSION_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=inner+mission+room"
+MISSION_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=mission+district+room"
+NOE_VALLEY_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=noe+valley+room"
+DOWNTOWN_SF_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=downtown+sf+room"
+CASTRO_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=castro+room"
+MARINA_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=marina+room"
+CHINATOWN_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=chinatown+room"
+NORTH_BEACH_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=north+beach+room"
+RUSSIAN_HILL_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=russian+hill+room"
 AUGUST_ROOM_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=august+room+available"
 VAN_NESS_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=van+ness+room"
-OCEAN_AVE_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=ocean+ave+room"
 
 WEST_OAKLAND_CRAIGSLIST_URL = (
     "https://sfbay.craigslist.org/search/eby/roo"
@@ -186,23 +219,30 @@ FACEBOOK_MARKETPLACE_SEARCHES = (
     ("SF private room", _fb_sf("private room")),
     ("SF room rent", _fb_sf("room for rent")),
     ("SF August room", _fb_sf("august room available")),
+    ("Dogpatch room", _fb_sf("dogpatch room")),
+    ("Noe Valley room", _fb_sf("noe valley room")),
+    ("Mission room", _fb_sf("mission district room")),
+    ("Hayes Valley room", _fb_sf("hayes valley room")),
+    ("Castro room", _fb_sf("castro room")),
+    ("Bernal Heights room", _fb_sf("bernal heights room")),
+    ("Panhandle room", _fb_sf("panhandle room")),
+    ("Marina room", _fb_sf("marina room")),
+    ("Chinatown room", _fb_sf("chinatown room")),
+    ("North Beach room", _fb_sf("north beach room")),
+    ("Russian Hill room", _fb_sf("russian hill room")),
+    ("Downtown SF room", _fb_sf("downtown sf room")),
     ("SOMA room", _fb_sf("soma room")),
     ("South Beach room", _fb_sf("south beach room")),
     ("Mission Bay room", _fb_sf("mission bay room")),
     ("Potrero room", _fb_sf("potrero hill room")),
     ("Civic Center room", _fb_sf("civic center room")),
     ("Financial District room", _fb_sf("financial district room")),
-    ("Hayes Valley room", _fb_sf("hayes valley room")),
     ("Inner Mission room", _fb_sf("inner mission room")),
-    ("West Oakland room", _fb_oak("west oakland room")),
-    ("Downtown Oakland room", _fb_oak("downtown oakland room")),
-    ("South SF room", _fb_sf("south san francisco room")),
 )
 
 # --- Zillow (requires Playwright) ---
 ZILLOW_SEARCHES = (
     ("SF Rentals under 1300", "https://www.zillow.com/san-francisco-ca/rentals/0-1300_mp/"),
-    ("Oakland Rentals under 1300", "https://www.zillow.com/oakland-ca/rentals/0-1300_mp/"),
 )
 
 # --- Polling ---
@@ -233,50 +273,71 @@ LOCATION_ALLOWED = {
             "dogpatch",
             "noe valley",
             "bernal",
+            "bernal heights",
             "inner mission",
+            "castro",
+            "panhandle",
+            "lower haight",
+            "nopa",
+            "north of the panhandle",
             "russian hill",
             "north beach",
-            "sunset",
-            "richmond district",
-            "outer richmond",
-            "inner richmond",
-            "excelsior",
+            "chinatown",
             "bayview",
-            "ingleside",
-            "parkside",
-            "outer sunset",
-            "inner sunset",
-            "west portal",
-            "forest hill",
             "marina",
+            "marina district",
+            "cow hollow",
             "pacific heights",
             "presidio",
             "treasure island",
+            # Richmond / Sunset / Ingleside / Excelsior hard-excluded via LOCATION_EXCLUDE
+            # Oakland / Emeryville hard-excluded — not in whitelist
         ),
         "url_markers": ("/san-francisco-", "sfc/", "search/sfc", "marketplace/sanfrancisco"),
     },
-    "west_oakland": {
-        "label": "West Oakland",
-        "terms": ("west oakland",),
-    },
-    "downtown_oakland": {
-        "label": "Downtown Oakland",
-        "terms": ("downtown oakland", "uptown oakland"),
-    },
-    "south_san_francisco": {
-        "label": "South San Francisco",
-        "terms": ("south san francisco", "ssf", "94080", "94083"),
-    },
+    # South San Francisco hard-excluded — terms kept only for detection helpers below
 }
 
 # --- Hard location exclusions (supplement whitelist) ---
 LOCATION_EXCLUDE = {
     "terms": (
+        # Outer SF — do not surface (user focus: Dogpatch / Noe / Mission / Hayes / downtown)
+        "richmond",
+        "richmond district",
+        "outer richmond",
+        "inner richmond",
+        "richmond / seacliff",
+        "seacliff",
+        "sunset",
+        "outer sunset",
+        "inner sunset",
+        "sunset / parkside",
+        "sunset district",
+        "parkside",
+        "ingleside",
+        "ingleside / sfsu / ccsf",
+        "excelsior",
+        "excelsior / outer mission",
+        "outer mission",
+        # South San Francisco (separate city — not SF)
+        "south san francisco",
+        "south san fran",
+        "ssf",
+        # East Bay — all Oakland + Emeryville + far markets (no longer allowed)
+        "oakland",
+        "west oakland",
+        "downtown oakland",
+        "uptown oakland",
+        "oakland west",
+        "oakland east",
+        "oakland downtown",
+        "oakland north",
+        "oakland hills",
+        "east oakland",
         "emeryville",
         "berkeley",
         "albany",
         "el cerrito",
-        "richmond",
         "hayward",
         "fremont",
         "san leandro",
@@ -303,12 +364,50 @@ LOCATION_EXCLUDE = {
         "jack london",
         "adams point",
         "grand lake",
-        "oakland east",
-        "east oakland",
     ),
     "blob_terms": (
         "near oakland zoo",
         "near san leandro",
+        "near sfsu",
+        "near sf state",
+        "ocean avenue",
+        "west portal",
+        "forest hill",
+    ),
+    # Match these in full listing text (FB often puts hood only in body, not neighborhood field)
+    "full_text_terms": (
+        "richmond district",
+        "outer richmond",
+        "inner richmond",
+        "richmond / seacliff",
+        "outer sunset",
+        "inner sunset",
+        "sunset / parkside",
+        "sunset district",
+        "in the sunset",
+        "in the richmond",
+        "ingleside",
+        "excelsior",
+        "outer mission",
+        "parkside",
+        "oakland",
+        "emeryville",
+        "west oakland",
+        "downtown oakland",
+        "south san francisco",
+        "ssf",
+    ),
+    # ZIP hard-excludes (when hood label is missing / only city+zip)
+    "zips": (
+        "94112",  # Excelsior / Outer Mission / Ingleside terr.
+        "94116",  # Outer Sunset / Parkside
+        "94122",  # Inner/Outer Sunset
+        "94121",  # Outer Richmond
+        "94118",  # Inner Richmond
+        "94127",  # West Portal / St. Francis Wood / near Ingleside
+        "94132",  # Lakeshore / SFSU / Ingleside
+        "94080",  # South San Francisco
+        "94083",  # South San Francisco
     ),
 }
 
@@ -347,14 +446,48 @@ BUDGET_REALISM = {
     ),
 }
 
-# --- Location preferences (user currently in SOMA; city center preferred) ---
+# --- Location preferences (focus: Dogpatch / Noe / Mission / Hayes / downtown) ---
 LOCATION_PREFERENCES = {
     "current_location": "SOMA",
     "tiers": {
+        "focus_core": {
+            "boost": 32,
+            "flag": "focus_core",
+            "digest_label": "Focus area (central SF + Marina / Chinatown / North Beach / Russian Hill)",
+            "terms": (
+                "dogpatch",
+                "noe valley",
+                "hayes valley",
+                "inner mission",
+                "mission district",
+                "mission /",
+                "mission,",
+                "the mission",
+                "castro",
+                "castro /",
+                "upper market",
+                "bernal heights",
+                "bernal",
+                "panhandle",
+                "near the panhandle",
+                "near panhandle",
+                "north of the panhandle",
+                "nopa",
+                "lower haight",
+                "marina",
+                "marina district",
+                "marina /",
+                "cow hollow",
+                "chinatown",
+                "north beach",
+                "russian hill",
+                "telegraph hill",
+            ),
+        },
         "soma_adjacent": {
             "boost": 28,
             "flag": "soma_adjacent",
-            "digest_label": "Near SOMA (current area)",
+            "digest_label": "Near SOMA / downtown",
             "terms": (
                 "soma",
                 "so ma",
@@ -380,34 +513,22 @@ LOCATION_PREFERENCES = {
                 "downtown san francisco",
                 "civic center",
                 "union square",
-                "chinatown",
                 "nob hill",
-                "russian hill",
-                "north beach",
-                "telegraph hill",
                 "tenderloin",
                 "van ness",
             ),
         },
         "central_adjacent": {
-            "boost": 12,
+            "boost": 14,
             "flag": "central_adjacent",
             "digest_label": "Central SF",
             "terms": (
-                "hayes valley",
-                "inner mission",
-                "mission district",
-                "mission /",
-                "mission,",
-                "lower haight",
                 "potrero hill",
                 "potrero",
-                "castro",
-                "noe valley",
-                "bernal heights",
-                "bernal",
                 "japantown",
                 "lower pacific heights",
+                "haight",
+                "cole valley",
             ),
         },
         "caltrain_corridor": {
@@ -427,7 +548,6 @@ LOCATION_PREFERENCES = {
                 "4th/king",
                 "fourth and king",
                 "china basin",
-                "dogpatch",
                 "bayshore",
                 "22nd street",
                 "22nd st",
@@ -442,9 +562,9 @@ LOCATION_PREFERENCES = {
             "terms": ("south san francisco", "ssf", "94080", "94083"),
         },
         "outer_sf": {
-            "penalty": -22,
+            "penalty": -40,
             "flag": "outer_sf_penalty",
-            "digest_label": "Outer SF — far from city center",
+            "digest_label": "Outer SF — far from focus areas",
             "terms": (
                 "outer sunset",
                 "parkside",
@@ -461,9 +581,14 @@ LOCATION_PREFERENCES = {
                 "sunnyside",
                 "inner sunset",
                 "outer richmond",
+                "inner richmond",
                 "richmond district",
+                "richmond / seacliff",
                 "sunset / parkside",
+                "sunset",
                 "ingleside /",
+                "west portal",
+                "forest hill",
             ),
         },
     },

@@ -2,17 +2,132 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
+from urllib.parse import urlparse
 
 from lfr.db.connection import _utcnow, get_connection, init_db
 
+_FB_ITEM_ID_RE = re.compile(r"/marketplace/item/(\d+)", re.IGNORECASE)
+_CL_NUMERIC_ID_RE = re.compile(r"/(\d{8,14})(?:\.html)?(?:[?#]|$)", re.IGNORECASE)
+
+
+def listing_id_candidates_from_url(url: str) -> list[str]:
+    """Possible listing IDs encoded in a Craigslist / Facebook / Zillow URL."""
+    if not url:
+        return []
+    candidates: list[str] = []
+    fb = _FB_ITEM_ID_RE.search(url)
+    if fb:
+        item_id = fb.group(1)
+        candidates.append(f"fb-{item_id}")
+        candidates.append(item_id)
+    cl = _CL_NUMERIC_ID_RE.search(url)
+    if cl:
+        candidates.append(cl.group(1))
+    path = urlparse(url).path.rstrip("/")
+    if path:
+        slug = path.split("/")[-1]
+        if slug.endswith(".html"):
+            slug = slug[: -len(".html")]
+        if slug and slug not in candidates:
+            candidates.append(slug)
+        # Zillow: 12345_zpid
+        if slug.endswith("_zpid"):
+            candidates.append(slug)
+            candidates.append(f"zillow-{slug.replace('_zpid', '')}")
+    # de-dupe, preserve order
+    seen: set[str] = set()
+    out: list[str] = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            out.append(c)
+    return out
+
+
 def get_listing_by_url(url: str) -> dict[str, Any] | None:
+    """Find listing by exact URL, slash variants, or IDs embedded in the URL."""
+    if not (url or "").strip():
+        return None
+    url = url.strip()
+    variants = [url]
+    if url.endswith("/"):
+        variants.append(url.rstrip("/"))
+    else:
+        variants.append(url + "/")
+
     with get_connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM listings WHERE url = ?",
-            (url,),
-        ).fetchone()
-    return dict(row) if row else None
+        for variant in variants:
+            row = conn.execute(
+                "SELECT * FROM listings WHERE url = ?",
+                (variant,),
+            ).fetchone()
+            if row:
+                return dict(row)
+
+        for lid in listing_id_candidates_from_url(url):
+            row = conn.execute(
+                "SELECT * FROM listings WHERE id = ?",
+                (lid,),
+            ).fetchone()
+            if row:
+                return dict(row)
+
+        # Facebook: also match by marketplace item path regardless of query string
+        fb = _FB_ITEM_ID_RE.search(url)
+        if fb:
+            item_id = fb.group(1)
+            row = conn.execute(
+                "SELECT * FROM listings WHERE url LIKE ? OR id = ?",
+                (f"%/marketplace/item/{item_id}%", f"fb-{item_id}"),
+            ).fetchone()
+            if row:
+                return dict(row)
+
+    return None
+
+
+def listing_already_known(
+    *,
+    url: str | None = None,
+    listing_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return existing listing if we already store this post (any URL form)."""
+    if url:
+        found = get_listing_by_url(url)
+        if found is not None:
+            return found
+    if listing_id:
+        found = get_listing_by_id(listing_id)
+        if found is not None:
+            return found
+        # fb- prefix variants
+        if listing_id.startswith("fb-"):
+            return get_listing_by_id(listing_id[3:])
+        return get_listing_by_id(f"fb-{listing_id}")
+    return None
+
+
+def should_skip_detail_scrape(existing: dict[str, Any] | None) -> bool:
+    """True when a detail-page HTTP fetch is unnecessary.
+
+    Skip when we already have the listing with body text, or it is already in
+    the apply queue / history (user already has it in the list).
+    """
+    if existing is None:
+        return False
+    if (existing.get("description") or "").strip():
+        return True
+    try:
+        from lfr.db.applications import get_application_by_listing_id
+
+        app = get_application_by_listing_id(str(existing["id"]))
+        if app is not None:
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def upsert_listing(
@@ -111,12 +226,22 @@ def upsert_listing(
             updates["neighborhood"] = neighborhood
             changed = True
         if description is not None and description != existing["description"]:
-            updates["description"] = description
-            changed = True
+            old_desc = (existing.get("description") or "").strip()
+            new_desc = description.strip()
+            # Never clobber a richer stored body with a thin search-card blob
+            if old_desc and len(new_desc) < max(40, int(len(old_desc) * 0.6)):
+                pass
+            else:
+                updates["description"] = description
+                changed = True
         if move_in_date is not None and move_in_date != existing["move_in_date"]:
             updates["move_in_date"] = move_in_date
             changed = True
-        elif description is not None and description != existing["description"]:
+        elif (
+            description is not None
+            and "description" in updates
+            and updates["description"] != existing["description"]
+        ):
             row_snapshot = {**dict(existing), **updates}
             resolved_move_in = _resolved_move_in_date(row_snapshot)
             if resolved_move_in != (existing.get("move_in_date") or ""):
@@ -129,8 +254,14 @@ def upsert_listing(
                 updates["posted_at"] = posted_at
                 changed = True
         if rental_address is not None and rental_address != existing["rental_address"]:
-            updates["rental_address"] = rental_address
-            changed = True
+            old_addr = (existing.get("rental_address") or "").strip()
+            new_addr = rental_address.strip()
+            # Prefer keeping a real address over a search-area label overwrite later
+            if old_addr and len(new_addr) < len(old_addr) and len(old_addr) >= 12:
+                pass
+            else:
+                updates["rental_address"] = rental_address
+                changed = True
 
         set_clause = ", ".join(f"{col} = ?" for col in updates)
         values = list(updates.values()) + [url]

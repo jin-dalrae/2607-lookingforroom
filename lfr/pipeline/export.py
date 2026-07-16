@@ -37,7 +37,8 @@ from lfr.map_coords import resolve_listing_coords
 from lfr.mail.send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "site" / "data.json"
-EXPORT_LIMIT = 500
+# No artificial cap — export full apply queue + history (location filter already drops out-of-area).
+EXPORT_LIMIT: int | None = None
 EXPORT_DESCRIPTION_MAX = 8000
 EXPORT_DESCRIPTION_RAW_MAX = 12000
 
@@ -603,7 +604,7 @@ def _page_title(profile: dict[str, Any]) -> str:
     return base
 
 
-def build_queue_payload(*, export_limit: int = EXPORT_LIMIT) -> dict[str, Any]:
+def build_queue_payload(*, export_limit: int | None = EXPORT_LIMIT) -> dict[str, Any]:
     init_db()
     profile = load_profile()
     subject = (profile.get("email_subject") or "Room Rental Inquiry").strip()

@@ -280,7 +280,9 @@ def write_digest(rows: list[dict]) -> None:
         "# Room Search Digest\n",
         f"Top {len(rows)} **matches** (hard filters — no score ranking).\n",
         "Move-in **August 1 – Aug 18**. Rent up to **$1300** ($800–$1000 preferred). "
-        "Excluded: Excelsior, Oakland east, scams, short-term, unknown dates, 'available now'. "
+        "Focus: Dogpatch, Noe Valley, Mission, Hayes Valley, downtown SF. "
+        "Excluded: Richmond, Sunset, Ingleside, Excelsior, Oakland east, scams, "
+        "short-term, unknown dates, 'available now'. "
         "Sorted: sweet-spot band first, then price. Private bedroom or small shared house.\n",
         "---\n",
     ]
@@ -296,7 +298,7 @@ def print_rankings(rows: list[dict]) -> None:
         return
 
     print(f"\n{'=' * 60}")
-    print(f"MATCHES ({len(rows)}) — Aug 1–18, ≤$1300, no Excelsior/Oakland east")
+    print(f"MATCHES ({len(rows)}) — Aug 1–18, ≤$1300, focus Dogpatch/Noe/Mission/Hayes/downtown")
     print(f"{'=' * 60}\n")
 
     for i, row in enumerate(rows, 1):

@@ -17,14 +17,16 @@ def get_listings_with_queue_applications(
         "draft",
         "rejected",
     ),
-    limit: int = 500,
+    limit: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Listings that have an application in a queue-visible status."""
+    """Listings that have an application in a queue-visible status.
+
+    Always includes full outreach history (any neighborhood) — location filters only
+    apply to new pool / to-apply candidates, never to existing applications.
+    """
     init_db()
     placeholders = ",".join("?" for _ in statuses)
-    with get_connection() as conn:
-        rows = conn.execute(
-            f"""
+    sql = f"""
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
@@ -36,14 +38,17 @@ def get_listings_with_queue_applications(
             LEFT JOIN scores s ON l.id = s.listing_id
             WHERE a.status IN ({placeholders})
             ORDER BY a.updated_at DESC
-            LIMIT ?
-            """,
-            (*statuses, limit),
-        ).fetchall()
+            """
+    params: list[Any] = list(statuses)
+    if limit is not None and limit > 0:
+        sql += " LIMIT ?"
+        params.append(limit)
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
     return [dict(row) for row in rows]
 
 
-def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
+def get_facebook_card_listings(*, limit: int | None = None) -> list[dict[str, Any]]:
     """Facebook listings with card-level scrape data for the apply queue UI."""
     from lfr.listings.dates import is_stale_listing
     from lfr.listings.description import is_junk_facebook_title
@@ -52,9 +57,7 @@ def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     from lfr.score.listing_rules import _is_non_residential_listing
 
     init_db()
-    with get_connection() as conn:
-        rows = conn.execute(
-            """
+    sql = """
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
@@ -68,10 +71,13 @@ def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
                   SELECT listing_id FROM applications WHERE status = 'rejected'
               )
             ORDER BY l.last_seen DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+            """
+    params: list[Any] = []
+    if limit is not None and limit > 0:
+        sql += " LIMIT ?"
+        params.append(limit)
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
 
     results: list[dict[str, Any]] = []
     for row in rows:
@@ -100,7 +106,7 @@ def get_facebook_card_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     return results
 
 
-def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
+def get_unscored_queue_listings(*, limit: int | None = None) -> list[dict[str, Any]]:
     """Unscored listings for the apply queue (shown as score pending)."""
     from lfr.listings.dates import is_stale_listing
     from lfr.listings.description import is_junk_facebook_title
@@ -109,9 +115,7 @@ def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     from lfr.score.listing_rules import _is_non_residential_listing
 
     init_db()
-    with get_connection() as conn:
-        rows = conn.execute(
-            """
+    sql = """
             SELECT
                 l.id, l.url, l.title, l.price, l.neighborhood,
                 l.description, l.move_in_date, l.source,
@@ -125,10 +129,13 @@ def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
                   SELECT listing_id FROM applications WHERE status = 'rejected'
               )
             ORDER BY l.last_seen DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+            """
+    params: list[Any] = []
+    if limit is not None and limit > 0:
+        sql += " LIMIT ?"
+        params.append(limit)
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
 
     results: list[dict[str, Any]] = []
     for row in rows:
@@ -152,9 +159,15 @@ def get_unscored_queue_listings(*, limit: int = 400) -> list[dict[str, Any]]:
     return results
 
 
-def get_queue_export_listings(*, pool_limit: int = 500) -> list[dict[str, Any]]:
-    """Pool listings plus Facebook card rows and any with queue application rows."""
-    pool = get_pool_listings(limit=pool_limit, exclude_scams=True)
+def get_queue_export_listings(*, pool_limit: int | None = None) -> list[dict[str, Any]]:
+    """Pool listings plus Facebook card rows and any with queue application rows.
+
+    ``pool_limit=None`` means no artificial cap (preferred).
+    """
+    # Pool fetch needs a working SQL bound when capped; unlimited uses a high scan ceiling
+    # then is filtered in Python (excluded locations already dropped there).
+    pool_fetch = pool_limit if pool_limit is not None else 50_000
+    pool = get_pool_listings(limit=pool_fetch, exclude_scams=True)
     seen = {row["id"] for row in pool}
     rows = list(pool)
     for row in get_facebook_card_listings(limit=pool_limit):

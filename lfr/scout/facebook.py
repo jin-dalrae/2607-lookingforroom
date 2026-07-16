@@ -13,6 +13,7 @@ from urllib.parse import urlparse
 
 from lfr.config import FACEBOOK_MARKETPLACE_SEARCHES, SEARCH_CRITERIA
 from lfr.db import get_listing_by_url, init_db, upsert_listing
+from lfr.db.listings import listing_already_known, should_skip_detail_scrape
 from lfr.scout.session import login_instructions, run_interactive_login, session_configured, state_path
 
 ITEM_ID_RE = re.compile(r"/marketplace/item/(\d+)")
@@ -627,7 +628,9 @@ def _merge_card_and_details(card: FacebookCard, details: dict[str, Any]) -> dict
 def _needs_detail_fetch(card: FacebookCard) -> bool:
     from lfr.listings.description import needs_description_backfill
 
-    existing = get_listing_by_url(card.url)
+    existing = listing_already_known(url=card.url, listing_id=card.listing_id)
+    if should_skip_detail_scrape(existing):
+        return False
     if existing is None:
         return True
     if _is_junk_title((existing.get("title") or "").strip()):
@@ -707,7 +710,26 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                     seen_urls.add(card.url)
                     counts["cards"] += 1
                     try:
-                        existing = get_listing_by_url(card.url)
+                        existing = listing_already_known(
+                            url=card.url, listing_id=card.listing_id
+                        )
+                        # Already in DB or apply list — no detail page, no body overwrite
+                        if should_skip_detail_scrape(existing):
+                            outcome = upsert_listing(
+                                listing_id=str(existing["id"]),
+                                url=card.url,
+                                title=card.title,
+                                price=card.price,
+                                neighborhood=None,
+                                description=None,
+                                posted_at=None,
+                                rental_address=None,
+                                source="facebook",
+                            )
+                            counts[outcome] += 1
+                            counts["skipped_detail"] = counts.get("skipped_detail", 0) + 1
+                            continue
+
                         fetch_details = existing is None or (
                             with_details and _needs_detail_fetch(card)
                         )
@@ -742,9 +764,13 @@ def run_poll_cycle(*, headless: bool = True, with_details: bool = False) -> dict
                                 title=card.title,
                                 price=card.price,
                                 neighborhood=_card_neighborhood(card),
-                                description=card_description,
-                                posted_at=parse_posted_at(card_description or card.card_text or ""),
-                                rental_address=card.location_line or None,
+                                description=card_description if existing is None else None,
+                                posted_at=parse_posted_at(
+                                    card_description or card.card_text or ""
+                                ),
+                                rental_address=(
+                                    (card.location_line or None) if existing is None else None
+                                ),
                                 source="facebook",
                             )
                         counts[outcome] += 1

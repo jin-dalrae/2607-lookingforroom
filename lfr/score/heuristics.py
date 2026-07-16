@@ -158,9 +158,6 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         flags.append("downtown_oakland_ok")
     elif zone == "emeryville":
         flags.append("emeryville_ok")
-    elif zone == "south_san_francisco":
-        flags.append("south_sf_ok")
-
     if _is_male_household_listing(text, title=loc["title"]):
         flags.append("male_household_reject")
 
@@ -323,8 +320,6 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         parts.append("Downtown Oakland OK")
     if emeryville_ok:
         parts.append("Emeryville OK")
-    if "south_sf_ok" in flags and location_tier != "south_san_francisco":
-        parts.append("South SF — ~1hr to Market")
     if "male_household_reject" in flags:
         parts.append("male-only household — reject")
     if "stale_listing_reject" in flags:

@@ -14,45 +14,62 @@ from bs4 import BeautifulSoup
 
 from lfr.config import (
     AUGUST_ROOM_CRAIGSLIST_URL,
+    CASTRO_CRAIGSLIST_URL,
+    CHINATOWN_CRAIGSLIST_URL,
     CIVIC_CRAIGSLIST_URL,
     CRAIGSLIST_URL,
     DOGPATCH_CRAIGSLIST_URL,
-    DOWNTOWN_OAKLAND_CRAIGSLIST_URL,
+    DOWNTOWN_SF_CRAIGSLIST_URL,
     EMBARCADERO_CRAIGSLIST_URL,
-    EMERYVILLE_CRAIGSLIST_URL,
     FINANCIAL_CRAIGSLIST_URL,
     HAYES_CRAIGSLIST_URL,
     INNER_MISSION_CRAIGSLIST_URL,
+    MARINA_CRAIGSLIST_URL,
     MISSION_BAY_CRAIGSLIST_URL,
+    MISSION_CRAIGSLIST_URL,
+    NOE_VALLEY_CRAIGSLIST_URL,
+    NORTH_BEACH_CRAIGSLIST_URL,
     POTRERO_CRAIGSLIST_URL,
+    RUSSIAN_HILL_CRAIGSLIST_URL,
     SOUTH_BEACH_CRAIGSLIST_URL,
-    SOUTH_SF_CRAIGSLIST_URL,
     SOMA_CRAIGSLIST_URL,
-    WEST_OAKLAND_CRAIGSLIST_URL,
     VAN_NESS_CRAIGSLIST_URL,
-    OCEAN_AVE_CRAIGSLIST_URL,
 )
-from lfr.db import get_listing_by_url, init_db, upsert_listing
+from lfr.db import init_db, upsert_listing
+from lfr.db.listings import (
+    listing_already_known,
+    listing_id_candidates_from_url,
+    should_skip_detail_scrape,
+)
+
+# Dedicated neighborhood queries (constants may also exist for unused/legacy areas)
+BERNAL_CRAIGSLIST_URL = f"{CRAIGSLIST_URL}&query=bernal+heights+room"
+PANHANDLE_CRAIGSLIST_URL = f"{CRAIGSLIST_URL}&query=panhandle+room"
 
 SEARCH_URLS = [
     ("San Francisco", CRAIGSLIST_URL),
+    ("Dogpatch", DOGPATCH_CRAIGSLIST_URL),
+    ("Noe Valley", NOE_VALLEY_CRAIGSLIST_URL),
+    ("Mission District", MISSION_CRAIGSLIST_URL),
+    ("Inner Mission", INNER_MISSION_CRAIGSLIST_URL),
+    ("Hayes Valley", HAYES_CRAIGSLIST_URL),
+    ("Castro", CASTRO_CRAIGSLIST_URL),
+    ("Bernal Heights", BERNAL_CRAIGSLIST_URL),
+    ("Panhandle", PANHANDLE_CRAIGSLIST_URL),
+    ("Marina", MARINA_CRAIGSLIST_URL),
+    ("Chinatown", CHINATOWN_CRAIGSLIST_URL),
+    ("North Beach", NORTH_BEACH_CRAIGSLIST_URL),
+    ("Russian Hill", RUSSIAN_HILL_CRAIGSLIST_URL),
+    ("Downtown SF", DOWNTOWN_SF_CRAIGSLIST_URL),
     ("SOMA", SOMA_CRAIGSLIST_URL),
     ("South Beach", SOUTH_BEACH_CRAIGSLIST_URL),
     ("Mission Bay", MISSION_BAY_CRAIGSLIST_URL),
-    ("Dogpatch", DOGPATCH_CRAIGSLIST_URL),
     ("Potrero Hill", POTRERO_CRAIGSLIST_URL),
     ("Civic Center", CIVIC_CRAIGSLIST_URL),
     ("Financial District", FINANCIAL_CRAIGSLIST_URL),
     ("Embarcadero", EMBARCADERO_CRAIGSLIST_URL),
-    ("Hayes Valley", HAYES_CRAIGSLIST_URL),
-    ("Inner Mission", INNER_MISSION_CRAIGSLIST_URL),
-    ("August available", AUGUST_ROOM_CRAIGSLIST_URL),
-    ("West Oakland", WEST_OAKLAND_CRAIGSLIST_URL),
-    ("Downtown Oakland", DOWNTOWN_OAKLAND_CRAIGSLIST_URL),
-    ("Emeryville", EMERYVILLE_CRAIGSLIST_URL),
-    ("South San Francisco", SOUTH_SF_CRAIGSLIST_URL),
     ("Van Ness", VAN_NESS_CRAIGSLIST_URL),
-    ("Ocean Ave", OCEAN_AVE_CRAIGSLIST_URL),
+    ("August available", AUGUST_ROOM_CRAIGSLIST_URL),
 ]
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -249,33 +266,46 @@ def run_poll_cycle() -> dict[str, int]:
 
     for index, card in enumerate(cards, start=1):
         try:
-            existing = get_listing_by_url(card.url)
-            needs_details = existing is None or not existing.get("description")
-
-            if needs_details:
-                if index > 1:
-                    time.sleep(DETAIL_DELAY_SEC)
-                post_id, description, posted_at, unavailable = fetch_listing_details(
-                    session, card.url
+            id_guesses = listing_id_candidates_from_url(card.url)
+            existing = listing_already_known(
+                url=card.url,
+                listing_id=card.post_id or (id_guesses[0] if id_guesses else None),
+            )
+            # Already in DB / apply list with content — touch last_seen only, no detail HTTP
+            if should_skip_detail_scrape(existing):
+                outcome = upsert_listing(
+                    listing_id=str(existing["id"]),
+                    url=card.url,
+                    title=card.title,
+                    price=card.price,
+                    neighborhood=card.neighborhood or None,
+                    description=None,
+                    posted_at=None,
+                    source="craigslist",
                 )
-                listing_id = post_id or card.post_id
-                if unavailable:
-                    try:
-                        from lfr.check_urls import mark_dead_listing
+                counts[outcome] += 1
+                counts["skipped_detail"] = counts.get("skipped_detail", 0) + 1
+                continue
 
-                        mark_dead_listing(listing_id)
-                        counts["unavailable"] = counts.get("unavailable", 0) + 1
-                        print(f"  dead listing removed: {card.url}")
-                    except Exception as exc:
-                        print(
-                            f"  warning: could not mark dead {card.url}: {exc}",
-                            file=sys.stderr,
-                        )
-                    continue
-            else:
-                listing_id = existing["id"]
-                description = None
-                posted_at = None
+            if index > 1:
+                time.sleep(DETAIL_DELAY_SEC)
+            post_id, description, posted_at, unavailable = fetch_listing_details(
+                session, card.url
+            )
+            listing_id = post_id or card.post_id
+            if unavailable:
+                try:
+                    from lfr.check_urls import mark_dead_listing
+
+                    mark_dead_listing(listing_id)
+                    counts["unavailable"] = counts.get("unavailable", 0) + 1
+                    print(f"  dead listing removed: {card.url}")
+                except Exception as exc:
+                    print(
+                        f"  warning: could not mark dead {card.url}: {exc}",
+                        file=sys.stderr,
+                    )
+                continue
 
             outcome = upsert_listing(
                 listing_id=listing_id,
@@ -302,10 +332,12 @@ def main() -> int:
     counts = run_poll_cycle()
 
     total = counts["new"] + counts["updated"] + counts["unchanged"]
+    skipped = counts.get("skipped_detail", 0)
     print(
         f"Done. {total} listings processed: "
         f"{counts['new']} new, {counts['updated']} updated, "
         f"{counts['unchanged']} unchanged"
+        + (f", {skipped} already known (no detail re-fetch)" if skipped else "")
     )
     if counts["errors"]:
         print(f"Errors: {counts['errors']}", file=sys.stderr)

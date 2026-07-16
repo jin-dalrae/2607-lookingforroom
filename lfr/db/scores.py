@@ -236,6 +236,8 @@ def get_pool_listings(
 
     init_db()
     scam_clause = "AND s.is_scam_likely = 0" if exclude_scams else ""
+    # Scan enough scored rows for filtering; caller limit applied after filters.
+    sql_limit = max(int(limit or 0), 500) if limit and limit > 0 else 50_000
     with get_connection() as conn:
         rows = conn.execute(
             f"""
@@ -252,8 +254,9 @@ def get_pool_listings(
                   SELECT listing_id FROM applications WHERE status = 'rejected'
               )
             ORDER BY s.score DESC, l.price ASC
-            LIMIT 500
+            LIMIT ?
             """,
+            (sql_limit,),
         ).fetchall()
 
     results: list[dict[str, Any]] = []

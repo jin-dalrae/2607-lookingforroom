@@ -247,7 +247,28 @@ def _facebook_incomplete_candidates(*, queue_only: bool) -> list[dict[str, Any]]
             ]
     from lfr.listings.description import queue_display_details
 
-    needs = [row for row in candidates if needs_facebook_detail_backfill(row)]
+    # Do not re-scrape rows the user already actioned (sent / skipped / gone / etc.)
+    skip_statuses = frozenset(
+        {"sent", "replied", "toured", "skipped", "rejected", "accepted"}
+    )
+    with get_connection() as conn:
+        actioned = {
+            str(row["listing_id"])
+            for row in conn.execute(
+                f"""
+                SELECT listing_id FROM applications
+                WHERE status IN ({",".join("?" for _ in skip_statuses)})
+                """,
+                tuple(skip_statuses),
+            ).fetchall()
+        }
+
+    needs = [
+        row
+        for row in candidates
+        if needs_facebook_detail_backfill(row)
+        and str(row.get("id") or "") not in actioned
+    ]
     needs.sort(key=lambda row: (0 if not queue_display_details(row)[0] else 1,))
     return needs
 
