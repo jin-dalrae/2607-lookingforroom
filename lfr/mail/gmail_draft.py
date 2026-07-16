@@ -152,7 +152,8 @@ def format_result(summary: dict[str, Any], listing: dict[str, Any]) -> str:
     if not extract_listing_email(listing):
         lines.insert(
             6,
-            "Tip: open listing → Reply → paste reply.craigslist.org into To.",
+            "Craigslist: open the listing → click Reply → copy the "
+            "reply@…craigslist.org address → paste into Gmail’s To field.",
         )
     return "\n".join(lines)
 

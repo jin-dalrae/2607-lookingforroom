@@ -1080,14 +1080,51 @@ async function fallbackApply(item) {
     toast(copied ? "Message copied — paste in Messenger" : "Open listing and paste your message");
     return;
   }
+  // Craigslist: open the post (for Reply → email) + Gmail with draft body
+  if (item.url) {
+    window.open(item.url, "_blank", "noopener,noreferrer");
+  }
   window.open(gmailComposeUrl(item), "_blank", "noopener,noreferrer");
-  toast("Gmail compose opened — save as draft or send");
+  toast(
+    "Craigslist: click Reply on the listing to reveal the email, then paste it into Gmail’s To field",
+    false,
+  );
 }
 
 async function applyListing(id) {
   const item = (state.data?.listings || []).find((row) => row.id === id);
   if (!item) return;
   markLastClicked(id);
+
+  if (item.isFacebook) {
+    await fallbackApply(item);
+    return;
+  }
+
+  // Craigslist: try server Gmail draft (subject + body); user still pastes CL reply address
+  const base = apiBase();
+  if (base) {
+    try {
+      const res = await fetch(`${base}/api/draft/${encodeURIComponent(id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+      });
+      const json = await res.json().catch(() => ({}));
+      if (res.ok && json.ok && json.mode === "gmail_draft") {
+        if (item.url) window.open(item.url, "_blank", "noopener,noreferrer");
+        window.open("https://mail.google.com/mail/#drafts", "_blank", "noopener,noreferrer");
+        toast(
+          "Draft saved in Gmail. On Craigslist click Reply, copy the email, paste into To, then Send",
+        );
+        return;
+      }
+      // Gmail not configured → fall through to compose URL
+    } catch (_) {
+      /* offline API */
+    }
+  }
+
   await fallbackApply(item);
 }
 
