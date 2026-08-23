@@ -59,4 +59,5 @@ search:
     Surrounding neighborhoods are included automatically even if not named
     (FiDi, Nob Hill, Russian Hill, Telegraph Hill, Civic Center, South Beach,
     Potrero, Castro, Lower Haight, Japantown, Mission Bay, and similar).
-    Hard-reject Richmond, Sunset, Ingleside, Excelsior, East Bay, Daly City, South SF.
+    Hard-reject Oakland, Emeryville, Richmond, Sunset, Ingleside, Excelsior,
+    East Bay, Daly City, South SF.

@@ -644,6 +644,8 @@ def allowed_location_zone(row: dict[str, Any]) -> str | None:
     # SSF / Oakland / Emeryville are hard-excluded — never return as allowed zones
     if is_south_san_francisco_city(**common):
         return None
+    if is_oakland_or_emeryville_location(row):
+        return None
     if is_san_francisco_location(
         **common,
         full=ctx["full"],
@@ -690,9 +692,33 @@ def is_allowed_location(row: dict[str, Any]) -> bool:
     return is_fb_allowed_for_queue(row)
 
 
+def is_oakland_or_emeryville_location(row: dict[str, Any]) -> bool:
+    """True when the listing is in Oakland or Emeryville (not SF)."""
+    ctx = listing_location_context(row)
+    city = (ctx.get("city") or "").strip().lower()
+    hood = (ctx.get("neighborhood") or "").strip().lower()
+    rental = (ctx.get("rental_location") or "").strip().lower()
+    primary = ctx["primary"]
+    if is_emeryville_location(primary=primary, rental_location=rental, city=city):
+        return True
+    if is_west_oakland_location(primary=primary, rental_location=rental, city=city):
+        return True
+    if is_downtown_oakland_location(primary=primary, rental_location=rental, city=city):
+        return True
+    terms = ("oakland", "emeryville")
+    for blob in (city, hood, rental):
+        if blob and mentions_any_place(blob, terms):
+            return True
+    if has_sf_primary_signal(primary):
+        return False
+    return mentions_any_place(primary, terms)
+
+
 def is_excluded_location(row: dict[str, Any]) -> bool:
     """Any location that should never appear in the apply queue."""
     ctx = listing_location_context(row)
+    if is_oakland_or_emeryville_location(row):
+        return True
     if is_new_york_location(
         primary=ctx["primary"],
         rental_location=ctx["rental_location"],
@@ -865,9 +891,39 @@ def resolve_neighborhood_from_text(
         "West Oakland",
         "Downtown Oakland",
         "Emeryville",
-        "San Francisco",
+        "Hayes Valley",
+        "North Beach",
+        "Telegraph Hill",
+        "Russian Hill",
+        "Pacific Heights",
+        "Financial District",
+        "Civic Center",
+        "Union Square",
+        "Lower Nob Hill",
+        "Nob Hill",
+        "Lower Haight",
+        "Haight-Ashbury",
+        "Alamo Square",
+        "Western Addition",
+        "Potrero Hill",
+        "Mission Bay",
+        "South Beach",
+        "Mission District",
+        "Inner Mission",
+        "Bernal Heights",
+        "Noe Valley",
+        "Marina District",
+        "Cow Hollow",
+        "Chinatown",
+        "Tenderloin",
+        "Japantown",
+        "Dogpatch",
         "SOMA",
+        "South of Market",
         "Mission",
+        "Marina",
+        "Castro",
+        "San Francisco",
     ):
         if mention_place(blob, label.lower()):
             return label

@@ -1113,23 +1113,14 @@ function render() {
   }
   if (els.updatedSep) els.updatedSep.hidden = !updatedAt;
   if (els.apiHint) {
-    let apiMessage = "";
-    if (!state.apiOnline) {
-      apiMessage = isLocalDev()
-        ? "Status buttons won't save — run api.py locally."
-        : "Status buttons won't save — online API unavailable.";
-    } else if (!state.apiHasSkip || !state.apiHasReplied) {
-      apiMessage = "Restart api.py so Sent / Replied / Gone sync.";
-    }
-    els.apiHint.textContent = apiMessage;
-    els.apiHint.hidden = !apiMessage;
-    els.apiHint.classList.toggle("warn", Boolean(apiMessage));
+    els.apiHint.textContent = "";
+    els.apiHint.hidden = true;
   }
 
   const scrapeBtn = document.getElementById("scrape-btn");
   const scrapeSep = document.getElementById("scrape-sep");
-  if (scrapeBtn) scrapeBtn.style.display = state.apiHasScrape ? "inline-block" : "none";
-  if (scrapeSep) scrapeSep.hidden = !state.apiHasScrape;
+  if (scrapeBtn) scrapeBtn.style.display = "none";
+  if (scrapeSep) scrapeSep.hidden = true;
 
   updateSortHeaders();
   highlightLastClickedRow();

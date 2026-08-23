@@ -308,8 +308,35 @@ def _extract_cards_from_search(page: Any, area_name: str) -> list[FacebookCard]:
     return cards
 
 
+def _goto_with_retry(page: Any, url: str, *, timeout_ms: int, attempts: int = 3) -> None:
+    last_exc: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            return
+        except Exception as exc:
+            last_exc = exc
+            message = str(exc)
+            transient = any(
+                token in message
+                for token in (
+                    "ERR_INTERNET_DISCONNECTED",
+                    "ERR_CONNECTION",
+                    "ERR_NETWORK",
+                    "ERR_NAME_NOT_RESOLVED",
+                    "Timeout",
+                    "NS_ERROR",
+                )
+            )
+            if not transient or attempt >= attempts:
+                raise
+            time.sleep(1.5 * attempt)
+    if last_exc:
+        raise last_exc
+
+
 def fetch_search_results(page: Any, search_url: str, area_name: str) -> list[FacebookCard]:
-    page.goto(search_url, wait_until="domcontentloaded", timeout=90_000)
+    _goto_with_retry(page, search_url, timeout_ms=90_000)
     return _extract_cards_from_search(page, area_name)
 
 
@@ -502,7 +529,7 @@ def _prepare_detail_page(page: Any) -> None:
 
 def fetch_listing_details(page: Any, url: str) -> dict[str, Any]:
     """Fetch title, price, description from a Marketplace item page."""
-    page.goto(url, wait_until="domcontentloaded", timeout=DETAIL_PAGE_TIMEOUT_MS)
+    _goto_with_retry(page, url, timeout_ms=DETAIL_PAGE_TIMEOUT_MS)
     page.wait_for_timeout(DETAIL_SETTLE_MS)
 
     title = _meta_content(page, "og:title")
