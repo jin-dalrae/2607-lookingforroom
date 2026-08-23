@@ -54,6 +54,42 @@ def _parse_price(text: str) -> int | None:
         return None
 
 
+# A Zillow result under /apartments/ or /b/ may be either a real unit inside a
+# complex (concrete price + real unit number) or a building shell with no price
+# of its own. The URL does not tell them apart — the price does.
+#
+# Separately, Zillow's rental-network feed emits synthetic unit ids for
+# floor-plan entries ("765 Geary St #C25628efa"), where the price is the plan's
+# starting rate rather than one unit's rent. Real unit numbers are short and
+# numeric ("#209", "APT 10", "#51").
+_SYNTHETIC_UNIT_RE = re.compile(
+    r"(?:#|\bapt\b|\bunit\b|\bste\b)\s*([A-Za-z0-9]{6,})\s*$", re.IGNORECASE
+)
+
+# "$1,500+", "From $1,500", "$1,500 - $3,200" — none of these is a rent we can
+# trust for one unit. _to_int() would happily turn them into a clean-looking
+# number ("$1,500 - $3,200" strips to 15003200; "$1,500+" to 1500).
+_PRICE_RANGE_RE = re.compile(r"\$?\s*[\d,]+\s*(?:-|\u2013|\u2014|to)\s*\$?\s*[\d,]+", re.IGNORECASE)
+_PRICE_VAGUE_RE = re.compile(r"\bfrom\b|\bstarting\b|\d\s*\+", re.IGNORECASE)
+
+
+def _has_synthetic_unit(street: str) -> bool:
+    match = _SYNTHETIC_UNIT_RE.search(str(street or "").strip())
+    if not match:
+        return False
+    token = match.group(1)
+    # Long *and* containing letters — a plain long number is still a real unit.
+    return len(token) >= 6 and any(ch.isalpha() for ch in token)
+
+
+def _price_is_vague(value: Any) -> bool:
+    """True when the price text describes a range or a 'from' teaser."""
+    if value is None or isinstance(value, (int, float, bool)):
+        return False
+    text = str(value)
+    return bool(_PRICE_RANGE_RE.search(text) or _PRICE_VAGUE_RE.search(text))
+
+
 def _extract_id_from_url(url: str) -> str:
     match = re.search(r"homedetails/([A-Za-z0-9_-]+)_zpid", url)
     if match:
@@ -149,26 +185,44 @@ def _card_from_property(prop: dict[str, Any], *, max_rent: int) -> ZillowCard | 
     if not url:
         return None
 
-    price = _to_int(prop.get("price") or prop.get("unformattedPrice"))
-    if price is not None and price > max_rent:
+    raw_price = prop.get("price") or prop.get("unformattedPrice")
+    if _price_is_vague(raw_price):
         return None
-    if "/apartments/" in url and "/homedetails/" not in url and price is None:
+    price = _to_int(raw_price)
+    if price is None:
         return None
-    if "/b/" in url and price is None:
+    if price > max_rent:
         return None
 
     addr_obj = prop.get("address") if isinstance(prop.get("address"), dict) else {}
-    address = str(
-        prop.get("addressRaw")
-        or prop.get("address")
-        or " ".join(
-            str(addr_obj.get(key) or "")
-            for key in ("street", "city", "state", "zipcode")
+    # Prefer the structured address. For units inside a complex, `addressRaw`
+    # is prefixed with the building's marketing name ("2300-2312 Market Street
+    # (1272rc), 2300-2312 Market St #209, ..."), which does not read as a
+    # specific street address downstream, so the queue falls back to just
+    # "San Francisco". The structured fields are clean.
+    if addr_obj.get("street"):
+        address = ", ".join(
+            part
+            for part in (
+                str(addr_obj.get("street") or "").strip(),
+                str(addr_obj.get("city") or "").strip(),
+                " ".join(
+                    p
+                    for p in (
+                        str(addr_obj.get("state") or "").strip(),
+                        str(addr_obj.get("zipcode") or "").strip(),
+                    )
+                    if p
+                ),
+            )
+            if part
         )
-    ).strip()
-    if isinstance(prop.get("address"), str) and not prop.get("addressRaw"):
-        address = prop["address"]
+    else:
+        address = str(prop.get("addressRaw") or prop.get("address") or "").strip()
     clean_address = " ".join(str(address).split()) or "San Francisco, CA"
+
+    if _has_synthetic_unit(addr_obj.get("street") or clean_address):
+        return None
 
     from lfr.listings.location import is_new_york_location
 
@@ -291,10 +345,11 @@ def run_poll_cycle_api() -> dict[str, int]:
                 page_cards += 1
                 _save_cards([card], counts)
             pagination = payload.get("pagination") if isinstance(payload.get("pagination"), dict) else {}
-            if not pagination.get("nextPage") and page >= int(pagination.get("currentPage") or page):
-                if len(properties) == 0:
-                    break
             if not properties:
+                break
+            # `otherPages` empty means this is the only page. Asking for page 2
+            # anyway returns an unrelated, unfiltered batch that is all noise.
+            if not pagination.get("nextPage") and not (pagination.get("otherPages") or {}):
                 break
         print(f"  kept {page_cards} listing(s) for {name}")
     return counts
@@ -387,6 +442,8 @@ def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
                 if price_match:
                     price_text = price_match.group(0)
 
+            if _price_is_vague(price_text):
+                continue
             price = _parse_price(price_text)
 
             address = ""
@@ -411,6 +468,9 @@ def scrape_zillow_search(page, search_name: str, url: str) -> list[ZillowCard]:
             title = f"Zillow: {clean_address}"
             if layout_bit:
                 title = f"Zillow: {layout_bit} — {clean_address}"
+
+            if price is None or _has_synthetic_unit(clean_address):
+                continue
 
             listing_id = _extract_id_from_url(href)
             description = card_text or f"{title}\n{clean_address}"

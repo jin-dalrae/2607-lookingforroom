@@ -9,9 +9,8 @@ const state = {
   likedOnly: false,
   memoOnly: false,
   multiRoomOnly: false,
-  findIds: null,
+  excludeScam: document.getElementById("filter-scam")?.checked ?? false,
   findNote: "",
-  findQuery: "",
   sortKey: "score",
   sortDir: -1,
   apiOnline: false,
@@ -19,7 +18,6 @@ const state = {
   apiHasLike: false,
   apiHasDelete: false,
   apiHasReplied: false,
-  apiHasFind: false,
   lastClickedId: null,
   page: 1,
   unlikedThisSession: new Set(),
@@ -62,11 +60,7 @@ const els = {
   likedOnly: document.getElementById("filter-liked"),
   memoOnly: document.getElementById("filter-memo"),
   multiRoom: document.getElementById("filter-multiroom"),
-  findForm: document.getElementById("find-form"),
-  findQuery: document.getElementById("find-query"),
-  findBtn: document.getElementById("find-btn"),
-  findClear: document.getElementById("find-clear"),
-  findStatus: document.getElementById("find-status"),
+  excludeScam: document.getElementById("filter-scam"),
   rowCount: document.getElementById("row-count"),
   apiHint: document.getElementById("api-hint"),
   updatedHint: document.getElementById("updated-hint"),
@@ -153,7 +147,6 @@ async function checkApi() {
     state.apiHasLike = false;
     state.apiHasDelete = false;
     state.apiHasReplied = false;
-    state.apiHasFind = false;
     return;
   }
   try {
@@ -169,9 +162,6 @@ async function checkApi() {
     state.apiHasLike = endpoints.includes("like");
     state.apiHasDelete = endpoints.includes("delete");
     state.apiHasReplied = endpoints.includes("replied");
-    state.apiHasFind =
-      Boolean(json.findAvailable) ||
-      endpoints.includes("find");
   } catch (_) {
     state.apiOnline = false;
     state.apiHasScrape = false;
@@ -179,7 +169,6 @@ async function checkApi() {
     state.apiHasLike = false;
     state.apiHasDelete = false;
     state.apiHasReplied = false;
-    state.apiHasFind = false;
   }
 }
 
@@ -713,19 +702,37 @@ function searchBlob(item) {
     item.notes,
     item.groupId ? "group-" + item.groupId : "",
     item.isMultiRoomHouse ? "multiple rooms in house" : "",
+    item.scamLikely ? "scam likely" : "",
+    item.scamWhy || "",
     item.posterName ? "author-" + item.posterName : "",
     sourceLabel(item),
     statusTimelineParts(item).join(" "),
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
+const EXCLUDED_AREA_RE = /\b(bayview|bay view|hunters point|hunter'?s point|portola|visitacion valley)\b/i;
+const EXCLUDED_ZIP_RE = /\b94124\b|\b94134\b/;
+
+function isExcludedArea(item) {
+  const blob = [
+    item.neighborhood,
+    item.displayAddress,
+    item.rentalAddress,
+    item.mapArea,
+    item.city,
+    item.zip,
+  ].filter(Boolean).join(" ");
+  return EXCLUDED_ZIP_RE.test(blob) || EXCLUDED_AREA_RE.test(blob);
+}
+
 function passesFilters(item) {
-  if (!state.findIds && !isSearching() && state.tab !== "all" && item.queueStatus !== state.tab) return false;
+  if (!isSearching() && state.tab !== "all" && item.queueStatus !== state.tab) return false;
 
   if (state.likedOnly && !item.liked && !state.unlikedThisSession.has(item.id)) return false;
   if (state.memoOnly && !item.notes) return false;
   if (state.multiRoomOnly && !item.isMultiRoomHouse) return false;
-  if (state.findIds && !state.findIds.has(item.id)) return false;
+  if (state.excludeScam && item.scamLikely) return false;
+  if (isExcludedArea(item)) return false;
   if (state.source !== "all" && item.source !== state.source) return false;
   if (state.bath && state.bath !== "all") {
     const privacy = String(item.bathPrivacy || "unknown");
@@ -866,6 +873,9 @@ function addressCell(item) {
 
 function subLines(item) {
   const tags = [];
+  if (item.scamLikely) {
+    tags.push(`<span class="tag-inline tag-scam" title="${esc(item.scamWhy || "Matches a listing you marked as scam")}">⚠️ Likely scam</span>`);
+  }
   if (item.posterName) tags.push(`<span class="tag-inline tag-poster">${esc(item.posterName)}</span>`);
   if (item.layoutLabel) tags.push(`<span class="tag-inline">${esc(item.layoutLabel)}</span>`);
   if (item.bathPrivacy === "private") tags.push(`<span class="tag-inline">Private bath</span>`);
@@ -1035,35 +1045,35 @@ function renderRow(item, index) {
     row1.push(`<button type="button" class="link-btn revert-btn" data-id="${esc(item.id)}">Revert</button>`);
   }
 
-  const row1Html = row1.length ? `<div class="action-row" style="display:flex; gap:0.35rem; margin-bottom:0.35rem;">${row1.join("")}</div>` : "";
-  const row2Html = row2.length ? `<div class="action-row" style="display:flex; gap:0.35rem;">${row2.join("")}</div>` : "";
-  const actionsHtml = `<div style="display:flex; flex-direction:column; align-items:flex-start;">${row1Html}${row2Html}</div>`;
+  const row1Html = row1.length ? `<div class="action-row">${row1.join("")}</div>` : "";
+  const row2Html = row2.length ? `<div class="action-row">${row2.join("")}</div>` : "";
+  const actionsHtml = `<div class="action-stack">${row1Html}${row2Html}</div>`;
 
   return `
     <tr class="${rowClass}"
         data-index="${index}"
         data-id="${esc(item.id)}">
-      <td class="num">${index}</td>
-      <td class="star-cell">
+      <td class="num cell-index">${index}</td>
+      <td class="star-cell cell-star">
         <button type="button" class="${starClass}" data-id="${esc(item.id)}" title="${item.liked ? "Unlike" : "Like"}">★</button>
       </td>
-      <td>${esc(address)}</td>
-      <td class="title-cell">
+      <td class="cell-address">${esc(address)}</td>
+      <td class="title-cell cell-title">
         <a href="${esc(item.url)}" target="_blank" rel="noopener noreferrer">${esc(item.title)}</a>
         ${subLines(item)}
       </td>
-      <td class="details-col">${detailsCell(item)}</td>
-      <td class="num">${esc(price)}</td>
-      <td class="num sqft-cell">${sqftCell(item)}</td>
-      <td>${esc(moveIn)}</td>
-      <td>${esc(posted)}</td>
-      <td>${esc(scraped)}</td>
-      <td class="num score-cell">${score}</td>
-      <td>${st.timeline
+      <td class="details-col cell-details">${detailsCell(item)}</td>
+      <td class="num cell-price" data-label="$/mo">${esc(price)}</td>
+      <td class="num sqft-cell cell-sqft" data-label="Sqft">${sqftCell(item)}</td>
+      <td class="cell-movein" data-label="Move-in">${esc(moveIn)}</td>
+      <td class="cell-posted" data-label="Posted">${esc(posted)}</td>
+      <td class="cell-scraped" data-label="Scraped">${esc(scraped)}</td>
+      <td class="num score-cell cell-score" data-label="Score">${score}</td>
+      <td class="cell-status">${st.timeline
     ? `<span class="status-timeline status-timeline-${st.css}">${esc(st.label)}</span>`
     : `<span class="badge badge-${st.css}">${esc(st.label)}</span>`}</td>
-      <td><span class="badge badge-channel">${esc(sourceLabel(item))}</span></td>
-      <td class="links-cell">${actionsHtml}</td>
+      <td class="cell-source"><span class="badge badge-channel">${esc(sourceLabel(item))}</span></td>
+      <td class="links-cell cell-actions">${actionsHtml}</td>
     </tr>`;
 }
 
@@ -1541,53 +1551,6 @@ async function markSent(id) {
   }
 }
 
-function setFindStatus(text, mode) {
-  if (!els.findStatus) return;
-  els.findStatus.textContent = text || "";
-  if (els.findForm) {
-    els.findForm.classList.toggle("is-finding", mode === "finding");
-    els.findForm.classList.toggle("has-results", mode === "results");
-  }
-  if (els.findClear) els.findClear.hidden = !state.findIds;
-}
-
-function clearFind() {
-  state.findIds = null;
-  state.findNote = "";
-  state.findQuery = "";
-  if (els.findQuery) els.findQuery.value = "";
-  if (els.findBtn) els.findBtn.disabled = false;
-  setFindStatus("", "");
-  state.page = 1;
-  render();
-}
-
-function runFind(event) {
-  if (event) event.preventDefault();
-  const question = (els.findQuery?.value || "").trim();
-  if (!question) {
-    clearFind();
-    return;
-  }
-  const listings = state.data?.listings || [];
-  if (!listings.length) {
-    toast("No listings loaded yet", true);
-    return;
-  }
-  const finder = window.LfrFind;
-  if (!finder) {
-    toast("Find is not loaded", true);
-    return;
-  }
-  const result = finder.findListings(question, listings);
-  const ids = result.ids || [];
-  state.findIds = new Set(ids);
-  state.findNote = result.note || "";
-  state.findQuery = question;
-  state.page = 1;
-  setFindStatus(result.note || "", ids.length ? "results" : "");
-  render();
-}
 
 function bindControls() {
   const rerender = () => render();
@@ -1633,22 +1596,11 @@ function bindControls() {
       rerenderFromStart();
     });
   }
-  if (els.findForm) {
-    els.findForm.addEventListener("submit", (event) => {
-      runFind(event);
+  if (els.excludeScam) {
+    els.excludeScam.addEventListener("change", () => {
+      state.excludeScam = els.excludeScam.checked;
+      rerenderFromStart();
     });
-  }
-  if (els.findQuery) {
-    els.findQuery.addEventListener("input", () => {
-      if (!els.findQuery.value.trim()) {
-        if (state.findIds) clearFind();
-        return;
-      }
-      runFind();
-    });
-  }
-  if (els.findClear) {
-    els.findClear.addEventListener("click", () => clearFind());
   }
 
   els.table.querySelectorAll("thead th[data-sort]").forEach((th) => {
@@ -1672,8 +1624,14 @@ function bindControls() {
   els.tbody.addEventListener("click", (event) => {
     const detailsEl = event.target.closest(".details-cell.expandable");
     if (detailsEl) {
-      const item = listingById(detailsEl.dataset.id);
-      renderDetailsCell(detailsEl, item, !detailsEl.classList.contains("expanded"));
+      const expand = !detailsEl.classList.contains("expanded");
+      if (expand) {
+        // One open at a time — several expanded posts make the table unusably long.
+        els.tbody.querySelectorAll(".details-cell.expandable.expanded").forEach((open) => {
+          if (open !== detailsEl) renderDetailsCell(open, listingById(open.dataset.id), false);
+        });
+      }
+      renderDetailsCell(detailsEl, listingById(detailsEl.dataset.id), expand);
       return;
     }
     const titleLink = event.target.closest(".title-cell a");

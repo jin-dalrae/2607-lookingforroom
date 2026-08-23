@@ -36,6 +36,7 @@ from lfr.pipeline.match import listing_matches_criteria
 from lfr.listings.house import apply_house_room_counts, rooms_available_from_text
 from lfr.listings.layout import bath_privacy, detect_layout
 from lfr.map_coords import map_areas_payload, resolve_listing_map_point
+from lfr.scam_echo import annotate_scam_echo
 from lfr.mail.send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "site" / "data.json"
@@ -244,6 +245,8 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "appSkippedAt": app.get("skipped_at") if app else None,
         "notes": app_notes,
         "isDead": is_dead_link,
+        "scamLikely": False,
+        "scamWhy": "",
         "postedAt": posted_at,
         "postedLabel": posted_display_label(row),
         "lat": map_point["lat"] if map_point else None,
@@ -480,6 +483,99 @@ def _group_members_cohesive(members: list[dict[str, Any]]) -> bool:
     return True
 
 
+# Deleting a row needs a stricter bar than merely grouping one.
+# `_description_duplicate_match` accepts jaccard >= 0.88 with as few as 12
+# shared words, which short scam boilerplate ("Drop your phone number, and
+# we'll contact you") trips between genuinely different listings. A real repost
+# shares essentially the whole description, so require a large absolute overlap
+# as well.
+_REPOST_MIN_SHARED_WORDS = 40
+_REPOST_MIN_JACCARD = 0.95
+
+
+def _is_repost_pair(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
+    if not _description_duplicate_match(item_a, item_b):
+        return False
+    shared_count, jaccard = _description_similarity(item_a, item_b)
+    return shared_count >= _REPOST_MIN_SHARED_WORDS and jaccard >= _REPOST_MIN_JACCARD
+
+
+def _has_user_history(item: dict[str, Any]) -> bool:
+    """True if the user has already engaged with this row in any way."""
+    if item.get("liked"):
+        return True
+    if (item.get("notes") or "").strip():
+        return True
+    if (item.get("queueStatus") or "to_apply") != "to_apply":
+        return True
+    return (
+        _ever_applied(item)
+        or _ever_replied(item)
+        or _ever_skipped(item)
+        or _ever_visited(item)
+        or _ever_gone(item)
+    )
+
+
+def _repost_representative(members: list[dict[str, Any]]) -> dict[str, Any]:
+    return max(
+        members,
+        key=lambda item: (
+            int(item.get("score") or 0),
+            str(item.get("scrapedAt") or ""),
+            str(item.get("postedAt") or ""),
+            str(item.get("id") or ""),
+        ),
+    )
+
+
+def collapse_duplicate_reposts(listings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Drop re-posts of a listing the queue already shows.
+
+    Only `_is_repost_pair` counts here — same price, same area, and a
+    description that is near-identical across a substantial number of words.
+    Rooms that merely share an address or a poster are different rooms in one
+    house, so they are left alone; that is what `group_similar_listings` and the
+    "2+ rooms in house" filter are for.
+
+    A row the user has already touched (liked, memoed, applied, skipped, ...) is
+    never dropped, so collapsing can't erase outreach history.
+    """
+    parent = {item["id"]: item["id"] for item in listings}
+
+    def find(listing_id: str) -> str:
+        current = listing_id
+        while parent[current] != current:
+            parent[current] = parent[parent[current]]
+            current = parent[current]
+        return current
+
+    for i, item_i in enumerate(listings):
+        for item_j in listings[i + 1:]:
+            if find(item_i["id"]) == find(item_j["id"]):
+                continue
+            if _is_repost_pair(item_i, item_j):
+                parent[find(item_i["id"])] = find(item_j["id"])
+
+    clusters: dict[str, list[dict[str, Any]]] = {}
+    for item in listings:
+        clusters.setdefault(find(item["id"]), []).append(item)
+
+    keep_ids: set[str] = set()
+    for members in clusters.values():
+        if len(members) == 1:
+            keep_ids.add(members[0]["id"])
+            continue
+        acted = [member for member in members if _has_user_history(member)]
+        keep = acted or [_repost_representative(members)]
+        for member in keep:
+            member["repostCount"] = len(members) - len(keep)
+        keep_ids.update(member["id"] for member in keep)
+
+    # Preserve the incoming order of whatever survived.
+    return [item for item in listings if item["id"] in keep_ids]
+
+
 def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any]]:
     parent = {item["id"]: item["id"] for item in listings}
 
@@ -678,7 +774,9 @@ def build_queue_payload(*, export_limit: int | None = EXPORT_LIMIT) -> dict[str,
 
     rows = get_queue_export_listings(pool_limit=export_limit)
     listings = [_serialize_listing(row, profile) for row in rows]
+    listings = collapse_duplicate_reposts(listings)
     listings = group_similar_listings(listings)
+    listings = annotate_scam_echo(listings)
     counts = {
         "toApply": sum(1 for item in listings if item["queueStatus"] == "to_apply"),
         "applied": sum(1 for item in listings if _ever_applied(item)),

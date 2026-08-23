@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Looking for Room</title>
-  <link rel="stylesheet" href="/style.css?v=4">
+  <link rel="stylesheet" href="/style.css?v=9">
 </head>
 <body>
   <div class="title-row">
@@ -16,21 +16,13 @@
   <p class="intro">
     <a href="/map.html">Map</a>
     <span class="intro-sep" id="scrape-sep" hidden>·</span>
-    <button type="button" id="scrape-btn" class="link-btn primary" style="display:none; margin:0; padding: 0.15rem 0.55rem; font-size: 0.8rem; vertical-align: middle; border-radius: 6px;">Run Scrape</button>
-    <span id="scrape-status" class="hint" style="margin-left: 0.5rem; font-size: 0.82rem; font-weight: 500; display: none;"></span>
+    <button type="button" id="scrape-btn" class="link-btn primary" style="display:none;">Run Scrape</button>
+    <span id="scrape-status" class="hint" style="display: none;"></span>
     <span class="intro-sep" id="updated-sep" hidden>·</span>
     <span class="intro-updated" id="updated-hint" hidden></span>
   </p>
   <p class="hint system-hint" id="api-hint" hidden></p>
 
-  <form class="find-bar" id="find-form" autocomplete="off">
-    <label class="find-label">Find
-      <input type="search" id="find-query" placeholder="Filter these listings… e.g. private bath Chinatown under 1300" maxlength="400">
-    </label>
-    <button type="submit" class="link-btn primary" id="find-btn">Find</button>
-    <button type="button" class="link-btn" id="find-clear" hidden>Clear</button>
-    <span class="find-status" id="find-status"></span>
-  </form>
 
   <div class="stats" id="stats">
     <span class="stat">To apply <strong id="stat-to-apply">…</strong></span>
@@ -78,11 +70,14 @@
     <label class="check-label">
       <input type="checkbox" id="filter-liked"> Liked only
     </label>
-    <label class="check-label" style="margin-left: 0.65rem;">
+    <label class="check-label">
       <input type="checkbox" id="filter-memo"> Memo only
     </label>
-    <label class="check-label" style="margin-left: 0.65rem;">
+    <label class="check-label">
       <input type="checkbox" id="filter-multiroom"> 2+ rooms in house
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="filter-scam" checked> Exclude scam likely
     </label>
     <span class="row-count" id="row-count"></span>
   </div>
@@ -116,7 +111,7 @@
   <nav class="pagination" id="pagination" aria-label="Listing pages"></nav>
 
   <div class="toast" id="toast"></div>
-  <script src="/find.js?v=1"></script>
-  <script src="/app.js?v=22" defer></script>
+  <script src="/app.js?v=28" defer></script>
+  <script src="/mobile.js?v=3" defer></script>
 </body>
 </html>

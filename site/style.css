@@ -93,53 +93,6 @@ h1 { margin: 0 0 0.25rem; font-size: 1.5rem; }
 
 .system-hint.warn { color: var(--orange); }
 
-.find-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.55rem 0.75rem;
-  background: var(--card);
-  border-radius: 12px;
-  padding: 0.85rem 1rem;
-  margin: 0.75rem 0 0;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
-}
-.find-label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  flex: 1 1 18rem;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-.find-bar input[type="search"] {
-  font: inherit;
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 500;
-  font-size: 0.95rem;
-  color: var(--text);
-  padding: 0.5rem 0.7rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: #fff;
-  width: 100%;
-}
-.find-bar .link-btn {
-  margin-bottom: 0.05rem;
-}
-.find-status {
-  flex: 1 1 12rem;
-  font-size: 0.85rem;
-  color: var(--muted);
-  line-height: 1.35;
-  min-height: 1.2rem;
-}
-.find-bar.is-finding .find-status { color: var(--blue); }
-.find-bar.has-results .find-status { color: var(--text); }
 
 .toolbar {
   display: flex;
@@ -369,6 +322,13 @@ tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
 }
+.tag-scam {
+  background: #fce8e6;
+  color: #c5221f;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  font-weight: 700;
+}
 
 .links-cell { min-width: 10.5rem; }
 
@@ -507,10 +467,6 @@ body.map-page .map-intro {
   margin: 0.2rem 0 0.45rem;
   font-size: 0.82rem;
 }
-body.map-page .find-bar {
-  margin-top: 0.35rem;
-  padding: 0.65rem 0.85rem;
-}
 body.map-page .toolbar {
   margin: 0.5rem 0 0.4rem;
   padding: 0.65rem 0.85rem;
@@ -521,6 +477,9 @@ body.map-page .toolbar .check-label { margin-top: 0.85rem; }
   color: var(--muted);
   margin: 0 0 0.45rem;
 }
+/* Carries only real messages now, so take up no room when there are none. */
+.map-legend:empty { display: none; margin: 0; }
+.map-legend-error { color: var(--red); }
 .map-split {
   display: grid;
   grid-template-columns: minmax(0, 1.2fr) minmax(17.5rem, 0.8fr);
@@ -603,7 +562,7 @@ body.map-page .toolbar .check-label { margin-top: 0.85rem; }
 .map-list-tags { margin-top: 0.3rem; }
 .map-list-item .tag-inline { margin-top: 0.15rem; }
 
-@media (max-width: 860px) {
+@media (min-width: 721px) and (max-width: 860px) {
   body.map-page {
     height: auto;
     overflow: auto;
@@ -633,3 +592,342 @@ body.map-page .toolbar .check-label { margin-top: 0.85rem; }
 
 .toast.show { display: block; }
 .toast.error { background: var(--red); }
+/* Action buttons inside the queue rows (previously inline styles on the
+   elements, which mobile rules could not override). */
+.action-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.action-row { display: flex; gap: 0.35rem; }
+.action-row + .action-row { margin-top: 0.35rem; }
+
+#scrape-btn {
+  margin: 0;
+  padding: 0.15rem 0.55rem;
+  font-size: 0.8rem;
+  vertical-align: middle;
+  border-radius: 6px;
+}
+#scrape-status {
+  margin-left: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+/* Controls that only exist on small screens; mobile.js injects them. */
+.filters-toggle,
+.mobile-sort,
+.map-switch { display: none; }
+
+/* ===================== Phones ===================== */
+@media (max-width: 720px) {
+  body {
+    padding: 0.9rem 0.85rem 2rem;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .title-row { gap: 0.5rem 0.75rem; }
+  .title-row h1 { font-size: 1.25rem; }
+  .user-switch {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+  }
+  .user-switch select { min-width: 0; flex: 1; }
+
+  /* 16px stops iOS Safari zooming the page in when a field takes focus. */
+  input,
+  select,
+  textarea { font-size: 16px; }
+
+  .intro { margin-bottom: 0.6rem; }
+  .stats {
+    gap: 0.3rem 0.8rem;
+    font-size: 0.82rem;
+    margin: 0.6rem 0 0.5rem;
+  }
+
+
+  /* ---- Filters fold behind a button; search + status stay out ---- */
+  .filters-toggle {
+    display: block;
+    width: 100%;
+    margin: 0.75rem 0 0;
+    padding: 0.5rem 0.8rem;
+    font: inherit;
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: left;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+    cursor: pointer;
+  }
+  .filters-toggle::after { content: " ▾"; color: var(--muted); }
+  .filters-toggle[aria-expanded="true"]::after { content: " ▴"; }
+  .filters-toggle.has-active { border-color: var(--blue); color: var(--blue); }
+
+  .toolbar,
+  body.map-page .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+    margin: 0.5rem 0 0.75rem;
+    padding: 0.75rem;
+  }
+  .toolbar.is-collapsed > *:not(.toolbar-primary):not(.row-count) { display: none; }
+  .toolbar.is-collapsed { gap: 0.6rem; }
+  .toolbar:not(.is-collapsed) { max-height: 60vh; overflow-y: auto; }
+  .toolbar label { width: 100%; }
+  .toolbar input[type="search"],
+  .toolbar input[type="number"],
+  .toolbar select {
+    min-width: 0;
+    width: 100%;
+    padding: 0.45rem 0.6rem;
+  }
+  .toolbar .check-label,
+  body.map-page .toolbar .check-label {
+    margin-top: 0;
+    min-height: 2.25rem;
+    align-items: center;
+  }
+  .toolbar .check-label input {
+    width: 1.15rem;
+    height: 1.15rem;
+  }
+  .row-count {
+    margin-left: 0;
+    align-self: flex-start;
+  }
+
+  /* ---- Sort control, since the table headers are gone ---- */
+  .mobile-sort {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.5rem;
+    margin: 0 0 0.65rem;
+  }
+  .mobile-sort-label {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    flex: 1;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  .mobile-sort select {
+    font: inherit;
+    font-size: 16px;
+    width: 100%;
+    padding: 0.4rem 0.6rem;
+    color: var(--text);
+    background: #fff;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+  }
+  .mobile-sort-dir {
+    flex: 0 0 auto;
+    min-width: 2.4rem;
+    min-height: 2.4rem;
+    font: inherit;
+    font-size: 1rem;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+
+  /* ---- The 14-column table becomes one card per listing ---- */
+  .table-wrap {
+    overflow-x: visible;
+    background: transparent;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  #queue-table thead { display: none; }
+  #queue-table,
+  #queue-table tbody,
+  #queue-table tr,
+  #queue-table td {
+    display: block;
+    width: auto;
+  }
+  #queue-table tbody td {
+    padding: 0;
+    line-height: 1.45;
+    text-align: left;
+  }
+  #queue-table tbody tr:not(.data-row) td {
+    padding: 1.1rem 0.9rem;
+    background: var(--card);
+    border-radius: 12px;
+  }
+
+  #queue-table tbody tr.data-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.5rem;
+    margin-bottom: 0.7rem;
+    padding: 0.8rem 0.85rem 0.75rem;
+    background: var(--card);
+    border-bottom: 0;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.07);
+  }
+  /* Keep the row tints meaningful now that rows are cards. */
+  #queue-table tbody tr.data-row:hover { background: var(--card); }
+  #queue-table tbody tr.match-row { background: #f7fbff; }
+  #queue-table tbody tr.pending-score-row { background: #fffaf2; }
+  #queue-table tbody tr.liked-row { background: #fffdf5; }
+  #queue-table tbody tr.last-clicked-row {
+    box-shadow: inset 4px 0 0 #ff9500, 0 1px 3px rgba(0, 0, 0, 0.07);
+  }
+
+  .cell-index {
+    order: 1;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .cell-index::before { content: "#"; }
+  .cell-status { order: 2; }
+  .cell-source { order: 3; }
+  .cell-star { order: 4; margin-left: auto; }
+  .cell-title {
+    order: 5;
+    flex: 1 0 100%;
+    margin-top: 0.3rem;
+  }
+  .cell-title a { font-size: 1rem; }
+  .cell-address {
+    order: 6;
+    flex: 1 0 100%;
+    margin-top: 0.15rem;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .cell-price { order: 7; }
+  .cell-sqft { order: 8; }
+  .cell-movein { order: 9; }
+  .cell-score { order: 10; }
+  .cell-posted { order: 11; }
+  .cell-scraped { order: 12; }
+  .cell-details { order: 13; flex: 1 0 100%; }
+  .cell-actions { order: 14; flex: 1 0 100%; }
+
+  /* Every labelled cell renders as a small "Label value" chip. */
+  #queue-table tbody td[data-label] {
+    flex: 0 0 auto;
+    margin: 0.4rem 0.35rem 0 0;
+    padding: 0.22rem 0.45rem;
+    font-size: 0.8rem;
+    background: #f2f2f5;
+    border-radius: 6px;
+  }
+  #queue-table tbody td[data-label]::before {
+    content: attr(data-label) " ";
+    font-size: 0.72rem;
+    color: var(--muted);
+  }
+  #queue-table tbody td.cell-price {
+    font-weight: 700;
+    color: #0b57d0;
+    background: #eef6ff;
+  }
+  #queue-table tbody td.cell-price::before { color: #5b87c9; }
+
+  #queue-table tbody td.cell-details { margin-top: 0.55rem; }
+  .details-col { min-width: 0; max-width: none; }
+  .details-cell.expanded { max-width: none; }
+  .cell-sub { max-width: none; }
+
+  #queue-table tbody td.cell-actions { margin-top: 0.6rem; }
+  .action-stack { width: 100%; }
+  .action-row { flex-wrap: wrap; gap: 0.3rem; }
+  .action-row + .action-row { margin-top: 0.3rem; }
+
+  /* Tappable without dominating the card. */
+  .link-btn {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+    padding: 0.35rem 0.7rem;
+    font-size: 0.8rem;
+    min-height: 2.1rem;
+  }
+  #scrape-btn { min-height: 2rem; padding: 0.3rem 0.7rem; font-size: 0.82rem; }
+  .star-btn {
+    width: 2.1rem;
+    height: 2.1rem;
+    font-size: 1.2rem;
+  }
+  .page-btn {
+    min-width: 2.25rem;
+    min-height: 2.25rem;
+    padding: 0.3rem 0.5rem;
+  }
+  .pagination { gap: 0.3rem; padding: 0.5rem 0; }
+
+  .toast {
+    bottom: 1rem;
+    max-width: calc(100vw - 1.7rem);
+  }
+
+  /* ---- Map page: one pane at a time ---- */
+  /* The pane gets an explicit height rather than filling a flex/grid chain.
+     Leaflet measures #map once, when the map is created, and a percentage
+     height that is not resolvable yet makes it cache a collapsed size — then
+     every circle projects to the same point and fitBounds picks a nonsense
+     zoom. A definite viewport height is always resolvable. */
+  body.map-page {
+    height: auto;
+    overflow: auto;
+    padding: 0.75rem;
+  }
+  body.map-page .map-intro { margin: 0.15rem 0 0.4rem; }
+  .map-legend { margin: 0 0 0.4rem; font-size: 0.78rem; }
+  .toolbar.is-collapsed { padding: 0.5rem 0.75rem; }
+
+  .map-switch {
+    display: flex;
+    gap: 0.4rem;
+    margin: 0 0 0.5rem;
+  }
+  .map-switch-btn {
+    flex: 1;
+    min-height: 2.4rem;
+    font: inherit;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+  }
+  .map-switch-btn.active {
+    color: #fff;
+    background: var(--blue);
+    border-color: var(--blue);
+  }
+
+  .map-split {
+    display: block;
+    min-height: 0;
+  }
+  .map-split[data-mobile-view="map"] .map-list { display: none; }
+  .map-split[data-mobile-view="list"] .map-pane { display: none; }
+  .map-pane { height: 65dvh; min-height: 18rem; }
+  .map-list { height: auto; max-height: none; overflow: visible; }
+  .map-list-item { padding: 0.85rem 0.9rem; }
+}

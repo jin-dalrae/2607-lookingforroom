@@ -641,10 +641,12 @@ def allowed_location_zone(row: dict[str, Any]) -> str | None:
         "rental_location": ctx["rental_location"],
         "city": ctx["city"],
     }
-    # SSF / Oakland / Emeryville are hard-excluded — never return as allowed zones
+    # SSF / Oakland / Emeryville / Bayview / Portola are hard-excluded
     if is_south_san_francisco_city(**common):
         return None
     if is_oakland_or_emeryville_location(row):
+        return None
+    if is_bayview_or_portola_location(row):
         return None
     if is_san_francisco_location(
         **common,
@@ -692,6 +694,36 @@ def is_allowed_location(row: dict[str, Any]) -> bool:
     return is_fb_allowed_for_queue(row)
 
 
+BAYVIEW_PORTOLA_TERMS = (
+    "bayview",
+    "bay view",
+    "bayview hunters point",
+    "hunters point",
+    "hunter's point",
+    "portola",
+    "portola district",
+    "visitacion valley",
+)
+BAYVIEW_PORTOLA_ZIPS = ("94124", "94134")
+
+
+def is_bayview_or_portola_location(row: dict[str, Any]) -> bool:
+    """True for Bayview, Hunters Point, or Portola (southeast SF)."""
+    ctx = listing_location_context(row)
+    zip_code = (ctx.get("zip") or "").strip()
+    if zip_code in BAYVIEW_PORTOLA_ZIPS:
+        return True
+    city = (ctx.get("city") or "").strip().lower()
+    hood = (ctx.get("neighborhood") or "").strip().lower()
+    rental = (ctx.get("rental_location") or "").strip().lower()
+    display = (ctx.get("display_place") or "").strip().lower()
+    primary = ctx["primary"]
+    for blob in (city, hood, rental, display, primary):
+        if blob and mentions_any_place(blob, BAYVIEW_PORTOLA_TERMS):
+            return True
+    return False
+
+
 def is_oakland_or_emeryville_location(row: dict[str, Any]) -> bool:
     """True when the listing is in Oakland or Emeryville (not SF)."""
     ctx = listing_location_context(row)
@@ -718,6 +750,8 @@ def is_excluded_location(row: dict[str, Any]) -> bool:
     """Any location that should never appear in the apply queue."""
     ctx = listing_location_context(row)
     if is_oakland_or_emeryville_location(row):
+        return True
+    if is_bayview_or_portola_location(row):
         return True
     if is_new_york_location(
         primary=ctx["primary"],

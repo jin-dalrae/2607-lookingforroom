@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Listing map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="/style.css?v=4">
+  <link rel="stylesheet" href="/style.css?v=9">
 </head>
 <body class="map-page">
   <div class="title-row">
@@ -15,18 +15,9 @@
     </label>
   </div>
   <p class="hint map-intro">
-    The list shows only homes in the current map, like Airbnb. Pan or zoom to update.
     <a href="/" id="back-to-queue">Back to apply queue</a>
   </p>
 
-  <form class="find-bar" id="find-form" autocomplete="off">
-    <label class="find-label">Find
-      <input type="search" id="find-query" placeholder="Filter these listings… e.g. private bath Chinatown under 1300" maxlength="400">
-    </label>
-    <button type="submit" class="link-btn primary" id="find-btn">Find</button>
-    <button type="button" class="link-btn" id="find-clear" hidden>Clear</button>
-    <span class="find-status" id="find-status"></span>
-  </form>
 
   <div class="toolbar map-toolbar">
     <label>Search
@@ -71,6 +62,9 @@
     <label class="check-label">
       <input type="checkbox" id="filter-multiroom"> 2+ rooms in house
     </label>
+    <label class="check-label">
+      <input type="checkbox" id="filter-scam" checked> Exclude scam likely
+    </label>
     <span class="row-count" id="pin-count"></span>
   </div>
   <p class="map-legend" id="map-hint">Loading…</p>
@@ -84,7 +78,7 @@
 
   <div class="toast" id="toast"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="/find.js?v=1"></script>
-  <script src="/map.js?v=7" defer></script>
+  <script src="/map.js?v=16" defer></script>
+  <script src="/mobile.js?v=3" defer></script>
 </body>
 </html>

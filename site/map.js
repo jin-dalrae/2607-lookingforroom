@@ -8,17 +8,17 @@ const state = {
   likedOnly: false,
   memoOnly: false,
   multiRoomOnly: false,
-  findIds: null,
+  excludeScam: document.getElementById("filter-scam")?.checked ?? false,
   findNote: "",
-  findQuery: "",
   userId: "",
   users: [],
   selectedId: "",
   map: null,
   layer: null,
   markers: new Map(),
+  pins: [],
   skipFit: false,
-  ignoreMove: false,
+  fitting: false,
 };
 
 const USER_STORAGE_KEY = "lfr-active-user";
@@ -197,29 +197,59 @@ function statusLabel(item) {
 }
 
 function searchBlob(item) {
+  // Keep this in step with the queue's searchBlob in app.js — the same typed
+  // text should match the same listings in both views.
   return [
     item.title,
     item.price ? String(item.price) : "",
+    item.price ? "$" + item.price : "",
     item.displayAddress,
     item.rentalAddress,
     item.neighborhood,
     item.city,
+    item.state,
+    item.zip,
     item.transitTag,
     item.moveInLabel,
     item.posterName,
     item.details,
     item.notes,
+    item.groupId ? "group-" + item.groupId : "",
     item.isMultiRoomHouse ? "multiple rooms in house" : "",
+    item.scamLikely ? "scam likely" : "",
+    item.scamWhy || "",
+    item.posterName ? "author-" + item.posterName : "",
     sourceLabel(item),
+    item.queueStatus || "",
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
+const EXCLUDED_AREA_RE = /\b(bayview|bay view|hunters point|hunter'?s point|portola|visitacion valley)\b/i;
+const EXCLUDED_ZIP_RE = /\b94124\b|\b94134\b/;
+const PIN_FILL = "#ffc078";
+const PIN_STROKE = "#e0892e";
+const PIN_SELECTED_FILL = "#ffb347";
+const PIN_SELECTED_STROKE = "#c2410c";
+
+function isExcludedArea(item) {
+  const blob = [
+    item.neighborhood,
+    item.displayAddress,
+    item.rentalAddress,
+    item.mapArea,
+    item.city,
+    item.zip,
+  ].filter(Boolean).join(" ");
+  return EXCLUDED_ZIP_RE.test(blob) || EXCLUDED_AREA_RE.test(blob);
+}
+
 function passesFilters(item) {
-  if (!state.findIds && state.tab !== "all" && (item.queueStatus || "to_apply") !== state.tab) return false;
+  if (state.tab !== "all" && (item.queueStatus || "to_apply") !== state.tab) return false;
   if (state.likedOnly && !item.liked) return false;
   if (state.memoOnly && !item.notes) return false;
   if (state.multiRoomOnly && !item.isMultiRoomHouse) return false;
-  if (state.findIds && !state.findIds.has(item.id)) return false;
+  if (state.excludeScam && item.scamLikely) return false;
+  if (isExcludedArea(item)) return false;
   if (state.source !== "all" && item.source !== state.source) return false;
   if (state.bath && state.bath !== "all") {
     const privacy = String(item.bathPrivacy || "unknown");
@@ -265,6 +295,7 @@ function listingById(id) {
 function listCardHtml(item, index) {
   const price = item.price ? `$${item.price}` : "—";
   const tags = [];
+  if (item.scamLikely) tags.push(`<span class="tag-inline tag-scam" title="${esc(item.scamWhy || "Matches a marked scam")}">⚠️ Likely scam</span>`);
   if (item.layoutLabel) tags.push(`<span class="tag-inline">${esc(item.layoutLabel)}</span>`);
   if (item.bathPrivacy === "private") tags.push(`<span class="tag-inline">Private bath</span>`);
   if (item.isMultiRoomHouse) {
@@ -288,41 +319,89 @@ function listCardHtml(item, index) {
     </article>`;
 }
 
-function highlightListItem(id) {
+function highlightListItem(id, { scroll = false } = {}) {
   document.querySelectorAll(".map-list-item").forEach((el) => {
     el.classList.toggle("active", el.dataset.id === id);
   });
-  const active = document.querySelector(`.map-list-item[data-id="${CSS.escape(id)}"]`);
-  if (active) {
-    active.scrollIntoView({ block: "nearest", behavior: "smooth" });
-  }
+  if (!scroll) return;
+  const active = document.querySelector(`.map-list-item[data-id="${CSS.escape(String(id))}"]`);
+  if (active) active.scrollIntoView({ block: "nearest", behavior: "smooth" });
 }
 
 function selectListing(id, { openPopup = true, pan = true } = {}) {
   state.selectedId = id || "";
-  highlightListItem(id);
+  restylePins();
   const marker = state.markers.get(id);
   if (marker && state.map) {
-    if (pan) state.map.setView(marker.getLatLng(), Math.max(state.map.getZoom(), 14), { animate: true });
+    if (pan) {
+      state.skipFit = true;
+      state.map.setView(marker.getLatLng(), Math.max(state.map.getZoom(), 14), { animate: true });
+    }
     if (openPopup) marker.openPopup();
+  }
+  syncListToMap({ scrollToSelected: true });
+}
+
+// Pins are geographic circles on purpose — their size shows how vague the
+// location is. That means they balloon on screen as you zoom in (280 m is
+// ~18px at zoom 13 but ~300px at zoom 17, covering the map), so clamp the
+// drawn radius to a sane pixel range at the current zoom.
+const PIN_MAX_PX = 11;
+
+function metersPerPixel(lat) {
+  const zoom = state.map ? state.map.getZoom() : 13;
+  return (40075016.686 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom + 8);
+}
+
+function markerMeters(item, point) {
+  const selected = item.id === state.selectedId;
+  const base = point?.source === "street"
+    ? (selected ? 90 : 75)
+    : (selected ? 160 : 140);
+  // Only ever shrink. L.circle.getBounds() includes the radius, so a pin that
+  // is allowed to grow past its true size drags the initial fitBounds out with
+  // it — at the pre-fit zoom that means circles hundreds of km wide.
+  const perPixel = metersPerPixel(Number.isFinite(point?.lat) ? point.lat : 37.77);
+  return Math.min(base, PIN_MAX_PX * perPixel);
+}
+
+function markerStyle(item) {
+  const selected = item.id === state.selectedId;
+  return {
+    color: selected ? PIN_SELECTED_STROKE : PIN_STROKE,
+    fillColor: selected || item.liked ? PIN_SELECTED_FILL : PIN_FILL,
+    fillOpacity: selected ? 0.45 : 0.32,
+    weight: selected ? 3 : 2,
+    opacity: 1,
+  };
+}
+
+function restylePins() {
+  if (!state.map) return;
+  for (const pin of state.pins) {
+    const marker = state.markers.get(pin.id);
+    if (!marker) continue;
+    marker.setStyle(markerStyle(pin.item));
+    if (typeof marker.setRadius === "function") {
+      marker.setRadius(markerMeters(pin.item, pin.point));
+    }
   }
 }
 
-function visibleMapItems() {
-  if (!state.map || !state.markers.size) return [];
-  const bounds = state.map.getBounds().pad(0.02);
+function itemsInMapView() {
+  if (!state.map || !state.pins.length) return [];
+  const bounds = state.map.getBounds();
+  if (!bounds || !bounds.isValid()) return [];
   const items = [];
-  for (const [id, marker] of state.markers) {
-    const latlng = marker.getLatLng();
-    if (!bounds.contains(latlng)) continue;
-    const item = listingById(id);
-    if (item) items.push(item);
+  for (const pin of state.pins) {
+    if (!bounds.contains(L.latLng(pin.lat, pin.lng))) continue;
+    items.push(pin.item);
   }
   items.sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0));
   return items;
 }
 
-function renderList(items) {
+function renderList(items, { scrollToSelected = false } = {}) {
   const root = document.getElementById("map-list");
   if (!root) return;
   if (!items.length) {
@@ -330,27 +409,33 @@ function renderList(items) {
     return;
   }
   root.innerHTML = items.map((item, i) => listCardHtml(item, i + 1)).join("");
-  if (state.selectedId) highlightListItem(state.selectedId);
+  if (state.selectedId) highlightListItem(state.selectedId, { scroll: scrollToSelected });
 }
 
-function updateVisibleList() {
-  const items = visibleMapItems();
+function syncListToMap(opts = {}) {
+  const items = itemsInMapView();
   const pinEl = document.getElementById("pin-count");
   const hintEl = document.getElementById("map-hint");
-  const onMap = state.markers.size;
+  const onMap = state.pins.length;
   if (pinEl) pinEl.textContent = `${items.length} in view · ${onMap} on map`;
   if (hintEl) {
-    hintEl.textContent = onMap
-      ? "List shows only homes in the current map. Pan or zoom to update."
-      : "No mappable listings match your filters.";
+    hintEl.className = "map-legend map-legend-info";
+    hintEl.textContent = onMap ? "" : "No mappable listings match your filters.";
   }
-  renderList(items);
+  renderList(items, opts);
 }
 
 function renderPins(items, { fit = true } = {}) {
   const pins = pinPositions(items);
+  state.pins = pins.map(({ item, point }) => ({
+    id: item.id,
+    lat: point.lat,
+    lng: point.lng,
+    item,
+    point,
+  }));
   if (!state.map) {
-    updateVisibleList();
+    syncListToMap();
     return;
   }
   if (state.layer) state.layer.clearLayers();
@@ -358,14 +443,9 @@ function renderPins(items, { fit = true } = {}) {
 
   const markers = [];
   for (const { item, point } of pins) {
-    const approx = point.approx || item.coordApprox || point.source === "neighborhood" || point.source === "city";
-    const marker = L.circleMarker([point.lat, point.lng], {
-      radius: item.liked ? 8 : approx ? 7 : 6,
-      color: item.id === state.selectedId ? "#c88700" : item.liked ? "#c88700" : "#0071e3",
-      fillColor: item.isMatch ? "#248a3d" : item.liked ? "#e8a317" : "#0071e3",
-      fillOpacity: approx ? 0.55 : 0.85,
-      weight: 2,
-      dashArray: approx ? "4,3" : null,
+    const marker = L.circle([point.lat, point.lng], {
+      radius: markerMeters(item, point),
+      ...markerStyle(item),
     });
     marker.bindPopup(popupHtml(item, point));
     marker.on("click", () => selectListing(item.id, { openPopup: false, pan: false }));
@@ -374,21 +454,26 @@ function renderPins(items, { fit = true } = {}) {
     markers.push(marker);
   }
 
-  if (markers.length && fit && !state.skipFit) {
-    state.ignoreMove = true;
-    const group = L.featureGroup(markers);
-    state.map.fitBounds(group.getBounds().pad(0.12));
-    const finishFit = () => {
-      if (!state.ignoreMove) return;
-      state.ignoreMove = false;
-      updateVisibleList();
-    };
-    state.map.once("moveend", finishFit);
-    setTimeout(finishFit, 350);
-  } else {
-    updateVisibleList();
-  }
+  const shouldFit = markers.length && fit && !state.skipFit;
   state.skipFit = false;
+  if (shouldFit) {
+    state.fitting = true;
+    const group = L.featureGroup(markers);
+    // Note: do not invalidateSize() here. L.Circle.getBounds() converts cached
+    // projected pixel points back to lat/lng, so re-measuring the container
+    // first invalidates them and the fit lands somewhere else entirely. The
+    // pane is given a height floor in CSS so it is never measured collapsed.
+    state.map.fitBounds(group.getBounds().pad(0.08));
+    const done = () => {
+      state.fitting = false;
+      restylePins();
+      syncListToMap();
+    };
+    state.map.once("moveend", done);
+    setTimeout(done, 400);
+  } else {
+    syncListToMap();
+  }
 }
 
 function render() {
@@ -402,62 +487,28 @@ function initMap() {
     maxZoom: 18,
   }).addTo(state.map);
   state.layer = L.layerGroup().addTo(state.map);
+  let moveTick = 0;
+  const onViewChange = () => {
+    if (state.fitting) return;
+    const now = Date.now();
+    if (now - moveTick < 40) return;
+    moveTick = now;
+    syncListToMap();
+  };
+  state.map.on("move", onViewChange);
+  state.map.on("zoom", onViewChange);
   state.map.on("moveend", () => {
-    if (state.ignoreMove) return;
-    updateVisibleList();
+    if (state.fitting) return;
+    syncListToMap();
+  });
+  state.map.on("zoomend", () => {
+    restylePins();
+    if (state.fitting) return;
+    syncListToMap();
   });
   requestAnimationFrame(() => state.map.invalidateSize());
 }
 
-function setFindStatus(text, mode) {
-  const status = document.getElementById("find-status");
-  const form = document.getElementById("find-form");
-  const clear = document.getElementById("find-clear");
-  if (status) status.textContent = text || "";
-  if (form) {
-    form.classList.toggle("is-finding", mode === "finding");
-    form.classList.toggle("has-results", mode === "results");
-  }
-  if (clear) clear.hidden = !state.findIds;
-}
-
-function clearFind() {
-  state.findIds = null;
-  state.findNote = "";
-  state.findQuery = "";
-  const input = document.getElementById("find-query");
-  const btn = document.getElementById("find-btn");
-  if (input) input.value = "";
-  if (btn) btn.disabled = false;
-  setFindStatus("", "");
-  render();
-}
-
-function runFind(event) {
-  if (event) event.preventDefault();
-  const input = document.getElementById("find-query");
-  const question = (input?.value || "").trim();
-  if (!question) {
-    clearFind();
-    return;
-  }
-  const listings = state.data?.listings || [];
-  if (!listings.length) {
-    toast("No listings loaded yet", true);
-    return;
-  }
-  if (!window.LfrFind) {
-    toast("Find is not loaded", true);
-    return;
-  }
-  const result = window.LfrFind.findListings(question, listings);
-  const ids = result.ids || [];
-  state.findIds = new Set(ids);
-  state.findNote = result.note || "";
-  state.findQuery = question;
-  setFindStatus(result.note || "", ids.length ? "results" : "");
-  render();
-}
 
 function bindControls() {
   const rerender = () => render();
@@ -493,15 +544,10 @@ function bindControls() {
     state.multiRoomOnly = event.target.checked;
     rerender();
   });
-  document.getElementById("find-form")?.addEventListener("submit", (event) => runFind(event));
-  document.getElementById("find-query")?.addEventListener("input", (event) => {
-    if (!event.target.value.trim()) {
-      if (state.findIds) clearFind();
-      return;
-    }
-    runFind();
+  document.getElementById("filter-scam")?.addEventListener("change", (event) => {
+    state.excludeScam = event.target.checked;
+    rerender();
   });
-  document.getElementById("find-clear")?.addEventListener("click", () => clearFind());
   document.getElementById("map-list")?.addEventListener("click", (event) => {
     if (event.target.closest(".map-list-open")) return;
     const card = event.target.closest(".map-list-item");
@@ -586,5 +632,8 @@ async function init() {
 
 init().catch((err) => {
   const hint = document.getElementById("map-hint");
-  if (hint) hint.textContent = `Failed to load map data: ${err.message}`;
+  if (hint) {
+    hint.className = "map-legend map-legend-error";
+    hint.textContent = `Failed to load map data: ${err.message}`;
+  }
 });

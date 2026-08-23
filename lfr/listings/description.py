@@ -48,8 +48,13 @@ _FB_CUT_MARKERS = (
     "provided by greatschools",
 )
 
+# Craigslist bodies start with a scraper preamble that duplicates the Posted
+# column: "Posted 2026-08-10 15:54 post id: 7952793334 2026-08-10T15:54:19-0700".
+# The colon after "Posted" is optional (the format changed), and an ISO
+# timestamp may trail the post id.
 _CL_POSTING_HEADER_RE = re.compile(
-    r"^posted:\s*.*?post\s+id:\s*\d+\s*",
+    r"^posted:?\s*.*?post\s+id:\s*\d+\s*"
+    r"(?:\d{4}-\d{2}-\d{2}T[\d:]+(?:[+-]\d{4}|Z)?\s*)?",
     re.IGNORECASE | re.DOTALL,
 )
 

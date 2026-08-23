@@ -324,7 +324,6 @@ LOCATION_ALLOWED = {
             "fillmore",
             "yerba buena",
             "rincon hill",
-            "bayview",
             "marina",
             "marina district",
             "cow hollow",
@@ -366,6 +365,15 @@ LOCATION_EXCLUDE = {
         "excelsior",
         "excelsior / outer mission",
         "outer mission",
+        # Southeast SF
+        "bayview",
+        "bay view",
+        "bayview hunters point",
+        "hunters point",
+        "hunter's point",
+        "portola",
+        "portola district",
+        "visitacion valley",
         # South San Francisco (separate city — not SF)
         "south san francisco",
         "south san fran",
@@ -444,6 +452,12 @@ LOCATION_EXCLUDE = {
         "excelsior",
         "outer mission",
         "parkside",
+        "bayview",
+        "bay view",
+        "hunters point",
+        "hunter's point",
+        "portola",
+        "portola district",
         "oakland",
         "emeryville",
         "west oakland",
@@ -460,6 +474,8 @@ LOCATION_EXCLUDE = {
         "94118",  # Inner Richmond
         "94127",  # West Portal / St. Francis Wood / near Ingleside
         "94132",  # Lakeshore / SFSU / Ingleside
+        "94124",  # Bayview / Hunters Point
+        "94134",  # Portola / Visitacion Valley
         "94080",  # South San Francisco
         "94083",  # South San Francisco
     ),
@@ -1244,6 +1260,20 @@ def facebook_marketplace_searches() -> list[tuple[str, str]]:
     return out
 
 
+def _zillow_price_bands(max_price: int) -> list[tuple[int, int]]:
+    """Split a budget into bands, weighted toward the top of the range.
+
+    The HasData Zillow search returns a single page (~22 results) and reports no
+    further pages, so one "under $max" query silently truncates the pool.
+    Narrower bands surface listings that query cannot reach, and listings
+    cluster near the ceiling, so the upper bands are tighter.
+    """
+    if max_price <= 600:
+        return [(0, max_price)]
+    cuts = sorted({0, int(max_price * 0.6), int(max_price * 0.85), int(max_price)})
+    return [(low, high) for low, high in zip(cuts, cuts[1:]) if high > low]
+
+
 def zillow_api_searches() -> list[tuple[str, dict]]:
     """HasData Zillow Listing API searches for the active user."""
     from lfr.users import current_user
@@ -1271,6 +1301,19 @@ def zillow_api_searches() -> list[tuple[str, dict]]:
             },
         ),
     ]
+    for low, high in _zillow_price_bands(max_price):
+        searches.append(
+            (
+                f"SF rentals ${low}-${high}",
+                {
+                    "keyword": "San Francisco, CA",
+                    "type": "forRent",
+                    "price[min]": low,
+                    "price[max]": high,
+                },
+            )
+        )
+
     if user.search_preset == "original":
         return searches
 
