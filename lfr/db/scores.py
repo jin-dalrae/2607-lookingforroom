@@ -266,6 +266,10 @@ def get_pool_listings(
             continue
         payload = _flags_payload(listing.get("flags_json"))
         if exclude_short_term:
+            from lfr.score.listing_rules import listing_is_short_stay
+
+            if listing_is_short_stay(listing):
+                continue
             if payload.get("short_term_reject"):
                 continue
             if str(payload.get("rent_period") or "").lower() in ("weekly", "daily", "sublet"):

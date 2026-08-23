@@ -1,0 +1,62 @@
+id: central
+name: Haneul
+page_title: Haneul's housing search
+email: ""
+email_subject: Room Rental Inquiry
+phone: ""
+move_in: available now / flexible
+budget: 1500
+append_hold_question: true
+
+message_template: |
+  Hi! I'm interested in your listing.
+
+  I'm Haneul. I'm looking for a place near Chinatown, Hayes Valley, the Mission, SOMA, or North Beach.
+  Budget is under $1500/month. A 1 bed / 1 bath, or a room in a 2b2b or 3b2b/3b3b, would be great.
+
+follow_up_template: |
+  Hi! I wanted to follow up on my inquiry. I'm still very interested.
+
+  Is this still available? Thank you!
+
+search:
+  max_rent: 1500
+  price_focus_min: 900
+  price_focus_max: 1500
+  price_match_max: 1500
+  min_acceptable_sqft: 100
+  nice_to_have_sqft: 150
+  require_move_in_window: false
+  use_filter_not_score: true
+  current_location: Chinatown
+  scout_apartments: true
+  others_ok: true
+  neighborhoods_preferred:
+    - Chinatown
+    - North Beach
+    - Hayes Valley
+    - Mission
+    - SOMA
+  neighborhoods_nearby:
+    - Financial District
+    - Nob Hill
+    - Russian Hill
+    - Telegraph Hill
+    - Civic Center
+    - South Beach
+    - Union Square
+    - Tenderloin
+  room_layouts:
+    - {beds: 1, baths: 1, label: 1r1b}
+    - {beds: 2, baths: 2, label: 2r2b}
+    - {beds: 3, baths: 3, label: 3r3b}
+    - {beds: 3, baths: 2, label: 3r2b}
+  room_type_note: >
+    Prefer a whole 1 bed / 1 bath, or one private room in a 2b2b, 3b3b, or 3b2b.
+    Other private-room layouts are still OK. Reject shared bedrooms, SROs, curtain rooms.
+  location_note: >
+    Focus Chinatown, North Beach, Hayes Valley, Mission, and SOMA.
+    Surrounding neighborhoods are included automatically even if not named
+    (FiDi, Nob Hill, Russian Hill, Telegraph Hill, Civic Center, South Beach,
+    Potrero, Castro, Lower Haight, Japantown, Mission Bay, and similar).
+    Hard-reject Richmond, Sunset, Ingleside, Excelsior, East Bay, Daly City, South SF.

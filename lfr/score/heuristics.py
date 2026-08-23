@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from lfr.config import LOCATION_PREFERENCES
+from lfr.config import LOCATION_PREFERENCES, SEARCH_CRITERIA
+from lfr.listings.layout import bath_privacy, detect_layout, layout_score_adjustment
 
 from lfr.listings.dates import is_stale_listing
 from lfr.listings.location import (
@@ -250,37 +251,58 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
     elif room_type == "sro_reject":
         score = 10
     else:
+        score = 28
         if room_type == "private_bedroom":
-            score += 25
+            score += 6
         elif room_type == "shared_house_ok":
-            score += 20
+            score += 4
         if small_household:
-            score += 10
+            score += 4
+        layout = detect_layout(
+            text,
+            beds=row.get("beds"),
+            baths=row.get("baths"),
+        )
+        layout_boost, layout_flag, _layout_note = layout_score_adjustment(
+            layout,
+            SEARCH_CRITERIA.get("room_layouts") or [],
+            others_ok=bool(SEARCH_CRITERIA.get("others_ok", True)),
+        )
+        if layout_flag:
+            flags.append(layout_flag)
+        if layout_boost:
+            score += min(int(layout_boost), 16)
+        privacy = bath_privacy(layout, text)
+        if privacy == "private":
+            score += 8
+            flags.append("private_bath")
+        elif privacy == "shared":
+            flags.append("shared_bath")
         if not short_term_reject and budget_price <= CRITERIA["max_rent"]:
-            score += int((CRITERIA["max_rent"] - budget_price) / 50)
+            max_rent = max(int(CRITERIA["max_rent"]), 1)
+            remaining = max(0, max_rent - int(budget_price))
+            score += min(12, int(remaining * 12 / max_rent))
         if transit_adjacent:
-            score += _transit_tier_boost(transit_tier, text)
-        if location_adjust:
-            score += location_adjust
+            score += min(_transit_tier_boost(transit_tier, text), 8)
+        if location_adjust > 0:
+            score += min(int(location_adjust), 18)
+        elif location_adjust < 0:
+            score += int(location_adjust)
         elif sfsu_close:
             score += 5
-        if west_oakland_ok and not far_oakland:
-            score += 6
-        if downtown_oakland_ok and not far_oakland:
-            score += 6
-        if emeryville_ok:
-            score += 4
-        if "sf_ok" in flags and transit_tier == "muni_tram" and _muni_caltrain_within_10min(text):
-            score += 12
-        elif "sf_ok" in flags and transit_tier == "muni_tram":
-            score += 6
         elif is_san_francisco_location(
             primary=primary,
             rental_location=loc["rental_location"],
             city=loc["city"],
             url=loc["url"],
         ):
-            score += 8
+            score += 3
+        if west_oakland_ok and not far_oakland:
+            score += 3
+        if downtown_oakland_ok and not far_oakland:
+            score += 3
+        if emeryville_ok:
+            score += 2
         if east_bay_penalty:
             score -= 25
         score += _far_oakland_penalty(raw_price, text)
@@ -300,6 +322,27 @@ def _heuristic_score(row: dict[str, Any]) -> dict[str, Any]:
         parts.append("SRO/hostel — reject")
     if small_household:
         parts.append("~3-person household")
+    layout = detect_layout(
+        text,
+        beds=row.get("beds"),
+        baths=row.get("baths"),
+    )
+    _boost, _flag, layout_note = layout_score_adjustment(
+        layout,
+        SEARCH_CRITERIA.get("room_layouts") or [],
+        others_ok=bool(SEARCH_CRITERIA.get("others_ok", True)),
+    )
+    if layout_note:
+        parts.append(layout_note)
+    privacy_note = bath_privacy(layout, text)
+    if privacy_note == "private":
+        parts.append("private bathroom")
+        if "private_bath" not in flags:
+            flags.append("private_bath")
+    elif privacy_note == "shared":
+        parts.append("shared bathroom")
+        if "shared_bath" not in flags:
+            flags.append("shared_bath")
     if transit_tier in ("muni_tram", "caltrain") and _muni_caltrain_within_10min(text):
         parts.append(f"≤10 min walk to {_transit_tier_label(transit_tier, muni_line)}")
     elif transit_adjacent and transit_tier == "muni_bus":

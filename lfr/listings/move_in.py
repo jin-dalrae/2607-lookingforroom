@@ -151,8 +151,12 @@ _MOVE_IN_AFTER_DATE_RE = re.compile(
     re.IGNORECASE,
 )
 
-_MOVE_IN_AFTER_CUTOFF = SEARCH_CRITERIA["move_in_hard_reject_after"]
-_MOVE_IN_WINDOW_END = SEARCH_CRITERIA["move_in_end"]
+def _move_in_after_cutoff():
+    return SEARCH_CRITERIA.get("move_in_hard_reject_after")
+
+
+def _move_in_window_end():
+    return SEARCH_CRITERIA.get("move_in_end")
 
 
 def _parse_after_move_in_match(match: re.Match[str]) -> date | None:
@@ -166,14 +170,25 @@ def _parse_after_move_in_match(match: re.Match[str]) -> date | None:
 
 
 def move_in_after_cutoff_hit(text: str) -> tuple[bool, str | None]:
-    """True when post says available after Aug 19+ (hard reject)."""
+    """True when post says available after the user's hard-reject cutoff."""
+    cutoff = _move_in_after_cutoff()
+    window_end = _move_in_window_end()
+    if cutoff is None and window_end is None:
+        return False, None
+    if not SEARCH_CRITERIA.get("require_move_in_window", True) and cutoff is None:
+        return False, None
     blob = text or ""
     for match in _MOVE_IN_AFTER_DATE_RE.finditer(blob):
         stated = _parse_after_move_in_match(match)
         if stated is None:
             continue
         effective = stated + timedelta(days=1)
-        if stated >= _MOVE_IN_AFTER_CUTOFF or effective > _MOVE_IN_WINDOW_END:
+        too_late = False
+        if cutoff is not None and stated >= cutoff:
+            too_late = True
+        if window_end is not None and effective > window_end:
+            too_late = True
+        if too_late:
             signal = _clean_phrase(match.group(0))
             return True, signal
     return False, None

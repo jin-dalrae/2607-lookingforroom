@@ -3,6 +3,7 @@
 .env.local
 .env.*
 !.env.example
+.dev.vars
 profile.yaml
 gmail_token.json
 gmail_oauth_pending.json
@@ -25,6 +26,10 @@ build/
 .run/
 *.log
 listings.db
+data/
+.active-user
+site/users.json
+site/data-*.json
 last_alerted_ids.json
 mail_seen.json
 facebook_state.json

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -50,12 +51,30 @@ def _is_sf_oakland_area(text: str) -> bool:
     return _is_oakland(text) or _mentions_any(text, _SF_OAKLAND_LOW_PRICE_AREAS)
 
 
+def _mentions_unwanted_short_term(blob: str) -> bool:
+    """True for short-term stay language, ignoring 'no/not short-term' landlords."""
+    for match in re.finditer(r"\bshort[- ]?term\b", blob, flags=re.IGNORECASE):
+        prefix = blob[max(0, match.start() - 10) : match.start()].lower()
+        if re.search(r"\b(?:no|not|non)[- ]?$", prefix.strip()):
+            continue
+        return True
+    return False
+
+
 def _is_short_sublease(text: str, *, title: str = "") -> bool:
     """Reject temporary residential sublets — not long-term room rentals."""
     tit = (title or "").strip()
     blob = f"{tit} {text}".strip()
     if not blob:
         return False
+
+    if _LONG_TERM_SUBLET_OK_RE.search(blob):
+        return False
+    if _LONGER_TERM_OPTION_RE.search(blob):
+        return False
+
+    if _mentions_unwanted_short_term(blob):
+        return True
 
     if _MONTH_SUBLET_TITLE_RE.search(tit):
         return True
@@ -66,12 +85,6 @@ def _is_short_sublease(text: str, *, title: str = "") -> bool:
             return True
     if _SHORT_TERM_SIGNAL_RE.search(blob):
         return True
-
-    if _LONG_TERM_SUBLET_OK_RE.search(blob):
-        return False
-
-    if _LONGER_TERM_OPTION_RE.search(blob):
-        return False
 
     return False
 
@@ -86,14 +99,14 @@ def _detect_rent_period(
 
     short_term_reject is True when the listing should be excluded from monthly rankings.
     """
+    if _is_short_sublease(text, title=title):
+        return "sublet", True
     if _MONTHLY_RENT_RE.search(text):
         return "monthly", False
     if _WEEKLY_RENT_RE.search(text):
         return "weekly", True
     if _DAILY_RENT_RE.search(text):
         return "daily", True
-    if _is_short_sublease(text, title=title):
-        return "sublet", True
 
     short_term_signal = bool(_SHORT_TERM_SIGNAL_RE.search(text))
     in_sf_oakland = _is_sf_oakland_area(text)
@@ -106,6 +119,31 @@ def _detect_rent_period(
         return "daily", True
 
     return "unknown", False
+
+
+def listing_is_short_stay(row: dict[str, Any]) -> bool:
+    """True for summer-only / short-term / weekly-daily listings."""
+    flags_json = row.get("flags_json")
+    if flags_json:
+        try:
+            parsed = json.loads(flags_json) if isinstance(flags_json, str) else flags_json
+        except (json.JSONDecodeError, TypeError):
+            parsed = {}
+        if isinstance(parsed, dict):
+            if parsed.get("short_term_reject"):
+                return True
+            rent_period = str(parsed.get("rent_period") or "").lower()
+            if rent_period in ("weekly", "daily", "sublet"):
+                return True
+            flag_list = parsed.get("flags") or []
+            if isinstance(flag_list, list) and "short_term_reject" in flag_list:
+                return True
+
+    title = str(row.get("title") or "")
+    description = str(row.get("description") or "")
+    blob = f"{title} {description}".strip()
+    _, reject = _detect_rent_period(blob, row.get("price"), title=title)
+    return reject
 
 
 def _effective_monthly_rent(price: int | None, rent_period: str) -> int | None:

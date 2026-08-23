@@ -6,7 +6,17 @@ import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Default path for the original user; live path comes from the active user.
 DB_PATH = Path(__file__).resolve().parent.parent.parent / "listings.db"
+
+
+def db_path() -> Path:
+    try:
+        from lfr.users import current_user_db_path
+
+        return current_user_db_path()
+    except Exception:
+        return DB_PATH
 
 SCORE_COLUMNS = (
     "listing_id",
@@ -34,7 +44,9 @@ def _utcnow() -> str:
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    path = db_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -199,6 +211,10 @@ def init_db() -> None:
             conn.execute("ALTER TABLE listings ADD COLUMN rental_address TEXT")
         if "liked" not in cols:
             conn.execute("ALTER TABLE listings ADD COLUMN liked INTEGER NOT NULL DEFAULT 0")
+        if "beds" not in cols:
+            conn.execute("ALTER TABLE listings ADD COLUMN beds INTEGER")
+        if "baths" not in cols:
+            conn.execute("ALTER TABLE listings ADD COLUMN baths INTEGER")
 
         _migrate_scores_table(conn)
         _init_applications_table(conn)

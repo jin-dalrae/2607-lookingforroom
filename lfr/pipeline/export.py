@@ -33,7 +33,9 @@ from lfr.listings.move_in import extract_move_in_label, move_in_sort_value
 from lfr.listings.poster import extract_poster_name
 from lfr.listings.size import extract_sqft_from_post, sqft_sort_value
 from lfr.pipeline.match import listing_matches_criteria
-from lfr.map_coords import resolve_listing_coords
+from lfr.listings.house import apply_house_room_counts, rooms_available_from_text
+from lfr.listings.layout import bath_privacy, detect_layout
+from lfr.map_coords import map_areas_payload, resolve_listing_map_point
 from lfr.mail.send_mail import extract_listing_email
 
 OUTPUT_PATH = __import__("pathlib").Path(__file__).resolve().parent.parent.parent / "site" / "data.json"
@@ -157,14 +159,33 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
 
     posted_at = resolve_posted_at(row)
     scraped_at = row.get("last_seen")
-    coords = resolve_listing_coords(
+    map_point = resolve_listing_map_point(
         {
             **row,
             "display_place": display_neighborhood,
             "rental_address": rental_address,
             "city": place.get("city") or "",
+            "zip": place.get("zip") or "",
+            "title": row.get("title") or "",
         }
     )
+    layout_blob = " ".join(
+        str(part)
+        for part in (
+            row.get("title"),
+            description_text,
+            details_raw,
+            display_neighborhood,
+            rental_address,
+        )
+        if part
+    )
+    layout = detect_layout(
+        layout_blob,
+        beds=row.get("beds"),
+        baths=row.get("baths"),
+    )
+    privacy = bath_privacy(layout, layout_blob)
 
     app_notes = ""
     is_dead_link = False
@@ -204,6 +225,15 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "scoreLabel": "Pending"
         if row.get("score") is None
         else str(int(row.get("score"))),
+        "scoreWhy": (row.get("reasoning") or "").strip(),
+        "privateBath": True if privacy == "private" else False if privacy == "shared" else None,
+        "bathPrivacy": privacy,
+        "layoutLabel": layout.get("label") or "",
+        "roomsListed": rooms_available_from_text(
+            row.get("title") or "",
+            description_text,
+            details_raw,
+        ),
         "appStatus": app_status,
         "queueStatus": _queue_status(app_status),
         "appUpdatedAt": app.get("updated_at") if app else None,
@@ -216,14 +246,20 @@ def _serialize_listing(row: dict[str, Any], profile: dict[str, Any]) -> dict[str
         "isDead": is_dead_link,
         "postedAt": posted_at,
         "postedLabel": posted_display_label(row),
-        "lat": coords[0] if coords else None,
-        "lng": coords[1] if coords else None,
+        "lat": map_point["lat"] if map_point else None,
+        "lng": map_point["lng"] if map_point else None,
+        "mapArea": map_point["area"] if map_point else "",
+        "coordSource": map_point["source"] if map_point else "",
+        "coordApprox": bool(map_point and map_point.get("source") in ("neighborhood", "city")),
         "scrapedAt": scraped_at,
         "scrapedLabel": format_timestamp_label(scraped_at),
         "transitTag": _transit_tag(row.get("flags_json"), row.get("reasoning") or ""),
         "moveInLabel": move_in_label,
         "moveInSort": move_in_sort_value(move_in_label),
         "posterName": extract_poster_name(row),
+        "roomsInHouse": 1,
+        "houseRoomSources": [],
+        "isMultiRoomHouse": False,
         "details": description_text or None,
         "detailsRaw": details_raw or None,
         "detailsPending": details_pending,
@@ -396,10 +432,34 @@ def _description_duplicate_match(item_a: dict[str, Any], item_b: dict[str, Any])
     return False
 
 
+def _same_poster_house(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
+    name_a = str(item_a.get("posterName") or "").strip().lower()
+    name_b = str(item_b.get("posterName") or "").strip().lower()
+    if not name_a or name_a != name_b:
+        return False
+    area_a = _same_area_label(item_a)
+    area_b = _same_area_label(item_b)
+    if not area_a or area_a != area_b:
+        return False
+    if area_a in _GENERIC_ADDRESS_LABELS:
+        return False
+    price_a = item_a.get("price")
+    price_b = item_b.get("price")
+    if price_a is not None and price_b is not None:
+        try:
+            if abs(int(price_a) - int(price_b)) > 400:
+                return False
+        except (TypeError, ValueError):
+            pass
+    return True
+
+
 def _same_house_pair(item_a: dict[str, Any], item_b: dict[str, Any]) -> bool:
     addr_a = _listing_address_key(item_a)
     addr_b = _listing_address_key(item_b)
     if addr_a and addr_b and addr_a == addr_b:
+        return True
+    if _same_poster_house(item_a, item_b):
         return True
     return _description_duplicate_match(item_a, item_b)
 
@@ -471,7 +531,7 @@ def group_similar_listings(listings: list[dict[str, Any]]) -> list[dict[str, Any
         item["isGrouped"] = len(members) > 1
         item["duplicateCount"] = len(members) - 1
 
-    return listings
+    return apply_house_room_counts(listings)
 
 
 _MONTH_ABBREV = {
@@ -608,9 +668,13 @@ def build_queue_payload(*, export_limit: int | None = EXPORT_LIMIT) -> dict[str,
     init_db()
     profile = load_profile()
     subject = (profile.get("email_subject") or "Room Rental Inquiry").strip()
+    from lfr.users import current_user_id, list_users
+
     user_name = str(profile.get("name") or "").strip()
     deadline_label = _deadline_label(profile)
     page_title = _page_title(profile)
+    active_user_id = current_user_id()
+    users = list_users()
 
     rows = get_queue_export_listings(pool_limit=export_limit)
     listings = [_serialize_listing(row, profile) for row in rows]
@@ -633,13 +697,16 @@ def build_queue_payload(*, export_limit: int | None = EXPORT_LIMIT) -> dict[str,
     return {
         "generatedAt": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
         "apiUrl": api_url,
+        "userId": active_user_id,
         "userName": user_name,
+        "users": users,
         "deadlineLabel": deadline_label,
         "pageTitle": page_title,
         "subject": subject,
         "messageTemplate": standard_apply_message(profile, ""),
         "counts": counts,
         "listings": listings,
+        "mapAreas": map_areas_payload(),
     }
 
 
@@ -684,5 +751,22 @@ def write_queue_data(path=None, *, run_backfill: bool = True) -> __import__("pat
     target = path or OUTPUT_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
     payload = build_queue_payload()
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    encoded = json.dumps(payload, ensure_ascii=False, indent=2)
+    target.write_text(encoded, encoding="utf-8")
+    user_id = str(payload.get("userId") or "").strip()
+    if user_id:
+        per_user = target.parent / f"data-{user_id}.json"
+        per_user.write_text(encoded, encoding="utf-8")
+    users_path = target.parent / "users.json"
+    users_path.write_text(
+        json.dumps(
+            {
+                "active": user_id,
+                "users": payload.get("users") or [],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
     return target

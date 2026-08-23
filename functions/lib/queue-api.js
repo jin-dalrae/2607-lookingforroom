@@ -12,6 +12,14 @@ const ENDPOINTS = [
   "notes",
   "toured",
   "accepted",
+  "find",
+];
+
+const GEMINI_MODELS = [
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-1.5-flash",
+  "gemini-2.5-flash-lite",
 ];
 
 const MILESTONE_COL = {
@@ -248,13 +256,120 @@ async function proxyToOrigin(request, env, path) {
   });
 }
 
+function geminiKey(env) {
+  return String(env.GEMINI_API_KEY || env.GCP_KEY || env.GOOGLE_API_KEY || "").trim();
+}
+
+function compactListing(item) {
+  const details = String(item?.details || item?.description || "").trim().slice(0, 280);
+  return {
+    id: String(item?.id || ""),
+    title: String(item?.title || "").slice(0, 120),
+    price: item?.price ?? null,
+    neighborhood: String(item?.neighborhood || item?.displayAddress || "").slice(0, 80),
+    address: String(item?.displayAddress || item?.rentalAddress || "").slice(0, 80),
+    layout: String(item?.layoutLabel || ""),
+    bath: String(item?.bathPrivacy || ""),
+    sqft: String(item?.sqftLabel || ""),
+    moveIn: String(item?.moveInLabel || ""),
+    source: String(item?.source || ""),
+    score: item?.score ?? null,
+    poster: String(item?.posterName || ""),
+    roomsInHouse: Number(item?.roomsInHouse || item?.roomsListed || 1) || 1,
+    details,
+  };
+}
+
+async function callGeminiFind(env, question, listings) {
+  const key = geminiKey(env);
+  if (!key) {
+    throw new Error("Gemini API key is not configured");
+  }
+  const prompt =
+    "Filter this housing-search queue. Use ONLY the listings JSON below. " +
+    "Do not use the web or outside knowledge. Do not invent listings.\n\n" +
+    `QUESTION:\n${question}\n\nLISTINGS:\n${JSON.stringify(listings)}\n\n` +
+    "Return JSON only:\n" +
+    '{ "ids": ["listing-id", ...], "note": "one short sentence" }\n' +
+    "Include every listing that matches. If a house has 2+ rooms available " +
+    "(roomsInHouse >= 2, or details/author say multiple rooms), treat those " +
+    "as the same house when the question asks about multiple rooms. " +
+    'If nothing matches, return {"ids": [], "note": "No matching listings."}.';
+
+  let lastError = "Gemini find failed";
+  for (const model of GEMINI_MODELS) {
+    const url =
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.1, responseMimeType: "application/json" },
+        }),
+      });
+      if (!response.ok) {
+        lastError = `${model} HTTP ${response.status}`;
+        continue;
+      }
+      const payload = await response.json();
+      const parts = payload?.candidates?.[0]?.content?.parts || [];
+      const text = parts.map((part) => String(part?.text || "")).join("").trim();
+      if (!text) {
+        lastError = `${model} empty response`;
+        continue;
+      }
+      const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      return JSON.parse(cleaned);
+    } catch (err) {
+      lastError = err && err.message ? err.message : String(err);
+    }
+  }
+  throw new Error(lastError);
+}
+
+async function handleFind(request, env) {
+  const body = await readJson(request);
+  const question = String(body.question || body.q || "").trim();
+  if (!question) {
+    return jsonError(400, "Type a question first");
+  }
+  const incoming = Array.isArray(body.listings) ? body.listings : [];
+  const known = new Set();
+  const listings = [];
+  for (const item of incoming.slice(0, 220)) {
+    const row = compactListing(item);
+    if (!row.id || known.has(row.id)) continue;
+    known.add(row.id);
+    listings.push(row);
+  }
+  if (!listings.length) {
+    return jsonResponse({ ok: true, ids: [], note: "No listings loaded." });
+  }
+  try {
+    const parsed = await callGeminiFind(env, question.slice(0, 400), listings);
+    const rawIds = Array.isArray(parsed?.ids) ? parsed.ids : [];
+    const ids = rawIds.map((id) => String(id)).filter((id) => known.has(id));
+    const note = String(parsed?.note || "").trim() ||
+      (ids.length ? `${ids.length} matching listing(s).` : "No matching listings.");
+    return jsonResponse({ ok: true, ids, note: note.slice(0, 240) });
+  } catch (err) {
+    const message = err && err.message ? err.message : "Gemini find failed";
+    return jsonError(502, message);
+  }
+}
+
 export async function handleQueueApi(request, env, segments, method) {
+  const route = segments.join("/");
+  if (method === "POST" && route === "find") {
+    return handleFind(request, env);
+  }
+
   const db = env.DB;
   if (!db) {
     return jsonError(503, "D1 database not configured");
   }
-
-  const route = segments.join("/");
 
   if (method === "GET" && route === "health") {
     return jsonResponse({
@@ -263,6 +378,7 @@ export async function handleQueueApi(request, env, segments, method) {
       message: "Apply API ready (Cloudflare D1)",
       endpoints: healthEndpoints(env),
       scrapeAvailable: Boolean(scrapeOrigin(env)),
+      findAvailable: Boolean(geminiKey(env)),
     });
   }
 

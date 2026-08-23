@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from typing import Any
 
@@ -327,8 +328,10 @@ def run(*, rescore_all: bool = False, use_gemini: bool | None = None) -> int:
     """Score listings (heuristic by default). Returns total scored."""
     init_db()
     if count_listings() == 0:
-        print("No listings found — seeding 3 test listings.")
-        seed_test_listings()
+        seed_flag = os.getenv("SEED_TEST_LISTINGS", "").strip().lower()
+        if seed_flag in ("1", "true", "yes"):
+            print("No listings found — seeding 3 test listings.")
+            seed_test_listings()
 
     if use_gemini is None:
         use_gemini = _gemini_enabled_by_env()

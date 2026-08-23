@@ -12,9 +12,17 @@ import sys
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from lfr.apply import create_application, load_profile, standard_apply_message
+from lfr.users import (
+    current_user_id,
+    get_user,
+    list_users,
+    reset_request_user_id,
+    set_active_user_id,
+    set_request_user_id,
+)
 from lfr.channels import default_channel_for_listing, is_facebook_listing
 from lfr.db import (
     _listing_with_score,
@@ -45,16 +53,34 @@ _last_scrape_status = "idle"  # "idle", "running", "success", "failed"
 _last_scrape_error = None
 
 
+CORS_ALLOW_HEADERS = "Content-Type, Authorization, X-LFR-User"
+
+
+def _apply_cors(handler: BaseHTTPRequestHandler) -> None:
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    handler.send_header("Access-Control-Allow-Headers", CORS_ALLOW_HEADERS)
+
+
 def _json_response(handler: BaseHTTPRequestHandler, status: int, payload: dict[str, Any]) -> None:
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     handler.send_response(status)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(body)))
-    handler.send_header("Access-Control-Allow-Origin", "*")
-    handler.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-    handler.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    _apply_cors(handler)
     handler.end_headers()
     handler.wfile.write(body)
+
+
+def _bind_request_user(handler: BaseHTTPRequestHandler):
+    parsed = urlparse(handler.path)
+    qs = parse_qs(parsed.query)
+    header = (handler.headers.get("X-LFR-User") or "").strip()
+    query_user = (qs.get("user") or [""])[0].strip()
+    uid = header or query_user
+    if uid and get_user(uid) is not None:
+        return set_request_user_id(uid)
+    return None
 
 
 def _auto_deploy_after_scrape() -> None:
@@ -97,17 +123,25 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+        _apply_cors(self)
         self.end_headers()
 
     def do_GET(self) -> None:
+        token = _bind_request_user(self)
+        try:
+            self._do_GET()
+        finally:
+            if token is not None:
+                reset_request_user_id(token)
+
+    def _do_GET(self) -> None:
         if not _auth_ok(self):
             _json_response(self, 401, {"ok": False, "error": "Unauthorized"})
             return
         path = urlparse(self.path).path
         if path == "/api/health":
+            from lfr.find import gemini_configured
+
             _json_response(
                 self,
                 200,
@@ -115,6 +149,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "gmail": gmail_configured(),
                     "message": "Apply API ready",
+                    "user": current_user_id(),
                     "endpoints": [
                         "draft",
                         "sent",
@@ -130,9 +165,19 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                         "notes",
                         "toured",
                         "accepted",
+                        "users",
+                        "queue",
+                        "find",
                     ],
+                    "findAvailable": gemini_configured(),
                 },
             )
+            return
+        if path == "/api/users":
+            self._handle_users()
+            return
+        if path == "/api/queue":
+            self._handle_queue()
             return
         if path == "/api/statuses":
             _json_response(
@@ -147,11 +192,22 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
         _json_response(self, 404, {"ok": False, "error": "Not found"})
 
     def do_POST(self) -> None:
+        token = _bind_request_user(self)
+        try:
+            self._do_POST()
+        finally:
+            if token is not None:
+                reset_request_user_id(token)
+
+    def _do_POST(self) -> None:
         if not _auth_ok(self):
             _json_response(self, 401, {"ok": False, "error": "Unauthorized"})
             return
 
         path = urlparse(self.path).path
+        if path == "/api/users/active":
+            self._handle_set_active_user()
+            return
         draft_match = re.match(r"^/api/draft/([^/]+)$", path)
         sent_match = re.match(r"^/api/sent/([^/]+)$", path)
         replied_match = re.match(r"^/api/replied/([^/]+)$", path)
@@ -210,6 +266,9 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/scrape":
             self._handle_scrape()
+            return
+        if path == "/api/find":
+            self._handle_find()
             return
         _json_response(self, 404, {"ok": False, "error": "Not found"})
 
@@ -333,6 +392,85 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
             {"ok": True, "status": "draft", "is_scam_likely": False},
         )
 
+    def _handle_find(self) -> None:
+        from lfr.find import find_listings, gemini_configured
+
+        if not gemini_configured():
+            _json_response(
+                self,
+                503,
+                {"ok": False, "error": "Gemini API key is not configured on the server"},
+            )
+            return
+        body = self._read_json_body()
+        question = str(body.get("question") or body.get("q") or "").strip()
+        listings = body.get("listings")
+        if not isinstance(listings, list):
+            listings = []
+        try:
+            result = find_listings(question, listings)
+        except ValueError as exc:
+            _json_response(self, 400, {"ok": False, "error": str(exc)})
+            return
+        except Exception as exc:
+            _json_response(self, 502, {"ok": False, "error": str(exc)})
+            return
+        _json_response(
+            self,
+            200,
+            {
+                "ok": True,
+                "ids": result.get("ids") or [],
+                "note": result.get("note") or "",
+            },
+        )
+
+    def _handle_users(self) -> None:
+        users = list_users()
+        _json_response(
+            self,
+            200,
+            {
+                "ok": True,
+                "active": current_user_id(),
+                "users": users,
+            },
+        )
+
+    def _handle_set_active_user(self) -> None:
+        body = self._read_json_body()
+        user_id = str(body.get("id") or body.get("user") or "").strip()
+        if not user_id or get_user(user_id) is None:
+            _json_response(self, 400, {"ok": False, "error": "Unknown user"})
+            return
+        raw = set_active_user_id(user_id)
+        try:
+            from lfr.pipeline.export import write_queue_data
+
+            write_queue_data(run_backfill=False)
+        except Exception as exc:
+            print(f"[api] export after user switch failed: {exc}", file=sys.stderr)
+        _json_response(
+            self,
+            200,
+            {
+                "ok": True,
+                "active": raw["id"],
+                "users": list_users(),
+            },
+        )
+
+    def _handle_queue(self) -> None:
+        try:
+            from lfr.pipeline.export import build_queue_payload
+
+            init_db()
+            payload = build_queue_payload()
+        except Exception as exc:
+            _json_response(self, 500, {"ok": False, "error": str(exc)})
+            return
+        _json_response(self, 200, {"ok": True, "queue": payload, "user": current_user_id()})
+
     def _handle_scrape_status(self) -> None:
         global _is_scraping, _last_scrape_status, _last_scrape_error
         _json_response(
@@ -348,6 +486,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
 
     def _handle_scrape(self) -> None:
         global _is_scraping, _last_scrape_status, _last_scrape_error
+        scrape_user = current_user_id()
         with _scrape_lock:
             if _is_scraping:
                 _json_response(self, 400, {"ok": False, "error": "Scrape already in progress"})
@@ -358,11 +497,12 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
 
         def worker() -> None:
             global _is_scraping, _last_scrape_status, _last_scrape_error
+            token = set_request_user_id(scrape_user)
             try:
                 from lfr.run import run_pipeline
                 from lfr.pipeline.export import write_queue_data
 
-                print("[api] Background scrape started…")
+                print(f"[api] Background scrape started for user={scrape_user}…")
                 run_pipeline()
                 write_queue_data()
                 _auto_deploy_after_scrape()
@@ -373,6 +513,7 @@ class ApplyAPIHandler(BaseHTTPRequestHandler):
                 _last_scrape_status = "failed"
                 _last_scrape_error = str(exc)
             finally:
+                reset_request_user_id(token)
                 _is_scraping = False
 
         t = threading.Thread(target=worker, name="ScrapeWorker")

@@ -13,17 +13,36 @@ from lfr.config import (
 )
 
 # --- User criteria (hardcoded config) ---
-MIN_ACCEPTABLE_SQFT = SEARCH_CRITERIA["min_acceptable_sqft"]
-NICE_TO_HAVE_SQFT = SEARCH_CRITERIA["nice_to_have_sqft"]
-MOVE_IN_TARGET_START: date = SEARCH_CRITERIA["move_in_start"]
-MOVE_IN_TARGET_END: date = SEARCH_CRITERIA["move_in_end"]
-MOVE_IN_FLEX_WEEKS: int = SEARCH_CRITERIA["move_in_flex_weeks"]
+MIN_ACCEPTABLE_SQFT = SEARCH_CRITERIA.get("min_acceptable_sqft") or 100
+NICE_TO_HAVE_SQFT = SEARCH_CRITERIA.get("nice_to_have_sqft") or 150
+MOVE_IN_FLEX_WEEKS: int = int(SEARCH_CRITERIA.get("move_in_flex_weeks") or 0)
+MOVE_IN_TARGET_START: date = SEARCH_CRITERIA.get("move_in_start") or date.today()
+MOVE_IN_TARGET_END: date = SEARCH_CRITERIA.get("move_in_end") or date.today()
 MOVE_IN_WINDOW_START = MOVE_IN_TARGET_START - timedelta(weeks=MOVE_IN_FLEX_WEEKS)
 MOVE_IN_WINDOW_END = MOVE_IN_TARGET_END + timedelta(weeks=MOVE_IN_FLEX_WEEKS)
 MOVE_IN_REFERENCE_TODAY = date(2026, 7, 2)
 MOVE_IN_FIT_VALUES = ("ideal", "maybe", "risky", "too_early", "too_late", "unknown")
 
-CRITERIA = {
+class _Criteria(dict):
+    """Scoring criteria with live max_rent from the active user."""
+
+    def __getitem__(self, key):
+        if key == "max_rent":
+            return SEARCH_CRITERIA.get("max_rent", super().__getitem__(key))
+        if key == "current_location":
+            return SEARCH_CRITERIA.get("current_location", super().get(key, "SOMA"))
+        if key == "wants" and SEARCH_CRITERIA.get("wants"):
+            return SEARCH_CRITERIA["wants"]
+        return super().__getitem__(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+
+CRITERIA = _Criteria({
     "max_rent": 1300,
     "min_acceptable_sqft": MIN_ACCEPTABLE_SQFT,
     "nice_to_have_sqft": NICE_TO_HAVE_SQFT,
@@ -70,7 +89,7 @@ CRITERIA = {
         "shared_bedroom_reject",
         "sro_reject",
     ],
-}
+})
 
 BATCH_SIZE = 20
 MODEL_FALLBACKS = [
@@ -437,7 +456,7 @@ _SHORT_TERM_SIGNAL_RE = re.compile(
 )
 
 _LONGER_TERM_OPTION_RE = re.compile(
-    r"(?:\b(?:3|6|9|12)\s*[- ]?month\s+minimum\b|\bone\s+year\b|\b1[- ]?year\b|\b9[- ]?month\b)",
+    r"(?:\b(?:6|9|12)\s*[- ]?month\s+minimum\b|\bone\s+year\b|\b1[- ]?year\b|\b9[- ]?month\b|\b12[- ]?month\b)",
     re.IGNORECASE,
 )
 
@@ -472,7 +491,49 @@ _SHORT_SUBLEASE_RES = (
         r"dates?:\s*.{0,80}?\bto\b",
         re.IGNORECASE,
     ),
-    re.compile(r"vacation\s+sub(?:let|lease)", re.IGNORECASE),
+    re.compile(r"vacation\s+(?:sub(?:let|lease)|rental)", re.IGNORECASE),
+    re.compile(
+        r"\b(?:summer|summertime)\s+(?:sub(?:let|lease)|rental|only|stay|housing)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:sub(?:let|lease)|rental)\s+(?:for\s+)?(?:the\s+)?summer\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bfor\s+(?:the\s+)?summer\b", re.IGNORECASE),
+    re.compile(r"\bonly\s+(?:for\s+)?(?:the\s+)?summer\b", re.IGNORECASE),
+    re.compile(r"\bthis\s+summer\s+only\b", re.IGNORECASE),
+    re.compile(r"\bduring\s+(?:the\s+)?summer\b", re.IGNORECASE),
+    re.compile(r"\bsummer\s+only\b", re.IGNORECASE),
+    re.compile(
+        r"\b(?:may|june|july)\s*(?:through|thru|to|until|-|–|—)\s*"
+        r"(?:july|august|september|sep(?:t)?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:jun|jul)\s*(?:through|thru|to|until|-|–|—)\s*(?:aug|sep(?:t)?)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:1|2|3|one|two|three)\s*[- ]?months?\s+"
+        r"(?:sub(?:let|lease)|lease|rental|only|stay)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\b(?:sub(?:let|lease)|lease|rental)\s+(?:for\s+)?"
+        r"(?:1|2|3|one|two|three)\s+months?\b",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\ba\s+few\s+months\b", re.IGNORECASE),
+    re.compile(r"\bcouple\s+(?:of\s+)?months\b", re.IGNORECASE),
+    re.compile(
+        r"\btemporary\s+(?:sub(?:let|lease)|rental|stay|housing)\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\buntil\s+(?:the\s+end\s+of\s+)?(?:june|july|august)\b",
+        re.IGNORECASE,
+    ),
 )
 
 _MIN_ROOM_SQFT = 50

@@ -15,6 +15,7 @@ from datetime import datetime
 
 from lfr.config import POLL_INTERVAL_HOURS, SEARCH_CRITERIA
 from lfr.db import get_matching_listings, init_pipeline_tables
+from lfr.users import current_user
 
 # Import pipeline stages (avoid naming conflict with stdlib 'filter')
 import lfr.scout.craigslist as scout
@@ -217,8 +218,13 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"Looking for Room — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
     print(
-        f"Criteria: private room, ≤${SEARCH_CRITERIA['max_rent']}, "
-        f"move-in {SEARCH_CRITERIA['move_in_start']}–{SEARCH_CRITERIA['move_in_end']}"
+        f"User: {current_user().name} · "
+        f"≤${SEARCH_CRITERIA['max_rent']}"
+        + (
+            f", move-in {SEARCH_CRITERIA['move_in_start']}–{SEARCH_CRITERIA['move_in_end']}"
+            if SEARCH_CRITERIA.get("require_move_in_window")
+            else ", move-in flexible"
+        )
     )
     print(f"Poll interval: every {POLL_INTERVAL_HOURS}h")
     print(f"Stages: {' → '.join(stages)}\n")

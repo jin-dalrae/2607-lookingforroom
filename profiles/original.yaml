@@ -1,0 +1,21 @@
+id: original
+name: August search
+page_title: August housing search to Aug 18
+search_preset: original
+email: ""
+email_subject: Room Rental Inquiry
+phone: ""
+move_in: late July through August 18, 2026
+budget: 1300
+deadline: Aug 18
+append_hold_question: true
+
+message_template: |
+  Hi! I'm interested in your room listing.
+
+  I can move in between August 1 and August 18, 2026. My budget is around $1300/month.
+
+follow_up_template: |
+  Hi! I wanted to follow up on my room inquiry. I'm still very interested.
+
+  Is the room still available? Thank you!

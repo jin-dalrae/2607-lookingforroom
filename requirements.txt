@@ -5,7 +5,9 @@ pyyaml>=6.0.0
 # Optional: Gmail OAuth drafts / inbox monitor
 google-auth-oauthlib>=1.2.0
 google-api-python-client>=2.100.0
-# Optional: Facebook / Zillow Playwright scouts
+# Optional: Facebook Playwright scout
 playwright>=1.40.0
+# Zillow via HasData Listing API (https://github.com/HasData/zillow-api-python)
+zillow-api-s>=1.0.0
 # Optional: Gemini cloud scoring (off by default — local heuristics work without it)
 # google-generativeai>=0.8.0

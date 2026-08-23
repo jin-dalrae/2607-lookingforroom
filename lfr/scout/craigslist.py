@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Poll Craigslist SF + Oakland rooms under $1300 and store listings in SQLite."""
+"""Poll Craigslist SF rooms/apartments for the active user's search."""
 
 from __future__ import annotations
 
@@ -12,29 +12,7 @@ from urllib.parse import urlparse
 import requests
 from bs4 import BeautifulSoup
 
-from lfr.config import (
-    AUGUST_ROOM_CRAIGSLIST_URL,
-    CASTRO_CRAIGSLIST_URL,
-    CHINATOWN_CRAIGSLIST_URL,
-    CIVIC_CRAIGSLIST_URL,
-    CRAIGSLIST_URL,
-    DOGPATCH_CRAIGSLIST_URL,
-    DOWNTOWN_SF_CRAIGSLIST_URL,
-    EMBARCADERO_CRAIGSLIST_URL,
-    FINANCIAL_CRAIGSLIST_URL,
-    HAYES_CRAIGSLIST_URL,
-    INNER_MISSION_CRAIGSLIST_URL,
-    MARINA_CRAIGSLIST_URL,
-    MISSION_BAY_CRAIGSLIST_URL,
-    MISSION_CRAIGSLIST_URL,
-    NOE_VALLEY_CRAIGSLIST_URL,
-    NORTH_BEACH_CRAIGSLIST_URL,
-    POTRERO_CRAIGSLIST_URL,
-    RUSSIAN_HILL_CRAIGSLIST_URL,
-    SOUTH_BEACH_CRAIGSLIST_URL,
-    SOMA_CRAIGSLIST_URL,
-    VAN_NESS_CRAIGSLIST_URL,
-)
+from lfr.config import craigslist_search_urls
 from lfr.db import init_db, upsert_listing
 from lfr.db.listings import (
     listing_already_known,
@@ -42,35 +20,10 @@ from lfr.db.listings import (
     should_skip_detail_scrape,
 )
 
-# Dedicated neighborhood queries (constants may also exist for unused/legacy areas)
-BERNAL_CRAIGSLIST_URL = f"{CRAIGSLIST_URL}&query=bernal+heights+room"
-PANHANDLE_CRAIGSLIST_URL = f"{CRAIGSLIST_URL}&query=panhandle+room"
+def _search_urls() -> list[tuple[str, str]]:
+    return craigslist_search_urls()
 
-SEARCH_URLS = [
-    ("San Francisco", CRAIGSLIST_URL),
-    ("Dogpatch", DOGPATCH_CRAIGSLIST_URL),
-    ("Noe Valley", NOE_VALLEY_CRAIGSLIST_URL),
-    ("Mission District", MISSION_CRAIGSLIST_URL),
-    ("Inner Mission", INNER_MISSION_CRAIGSLIST_URL),
-    ("Hayes Valley", HAYES_CRAIGSLIST_URL),
-    ("Castro", CASTRO_CRAIGSLIST_URL),
-    ("Bernal Heights", BERNAL_CRAIGSLIST_URL),
-    ("Panhandle", PANHANDLE_CRAIGSLIST_URL),
-    ("Marina", MARINA_CRAIGSLIST_URL),
-    ("Chinatown", CHINATOWN_CRAIGSLIST_URL),
-    ("North Beach", NORTH_BEACH_CRAIGSLIST_URL),
-    ("Russian Hill", RUSSIAN_HILL_CRAIGSLIST_URL),
-    ("Downtown SF", DOWNTOWN_SF_CRAIGSLIST_URL),
-    ("SOMA", SOMA_CRAIGSLIST_URL),
-    ("South Beach", SOUTH_BEACH_CRAIGSLIST_URL),
-    ("Mission Bay", MISSION_BAY_CRAIGSLIST_URL),
-    ("Potrero Hill", POTRERO_CRAIGSLIST_URL),
-    ("Civic Center", CIVIC_CRAIGSLIST_URL),
-    ("Financial District", FINANCIAL_CRAIGSLIST_URL),
-    ("Embarcadero", EMBARCADERO_CRAIGSLIST_URL),
-    ("Van Ness", VAN_NESS_CRAIGSLIST_URL),
-    ("August available", AUGUST_ROOM_CRAIGSLIST_URL),
-]
+
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -235,7 +188,7 @@ def _collect_cards(session: requests.Session) -> list[ListingCard]:
     seen_urls: set[str] = set()
     all_cards: list[ListingCard] = []
 
-    for area_name, search_url in SEARCH_URLS:
+    for area_name, search_url in _search_urls():
         print(f"Fetching search results: {area_name}")
         try:
             cards = fetch_search_results(session, search_url, area_name)
@@ -327,7 +280,7 @@ def run_poll_cycle() -> dict[str, int]:
 
 def main() -> int:
     print("Polling Craigslist:")
-    for area_name, search_url in SEARCH_URLS:
+    for area_name, search_url in _search_urls():
         print(f"  {area_name}: {search_url}")
     counts = run_poll_cycle()
 

@@ -4,10 +4,15 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Looking for Room</title>
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/style.css?v=4">
 </head>
 <body>
-  <h1 id="page-title">Looking for Room</h1>
+  <div class="title-row">
+    <h1 id="page-title">Looking for Room</h1>
+    <label class="user-switch">Account
+      <select id="user-select" aria-label="Switch account" hidden></select>
+    </label>
+  </div>
   <p class="intro">
     <a href="/map.html">Map</a>
     <span class="intro-sep" id="scrape-sep" hidden>·</span>
@@ -17,6 +22,15 @@
     <span class="intro-updated" id="updated-hint" hidden></span>
   </p>
   <p class="hint system-hint" id="api-hint" hidden></p>
+
+  <form class="find-bar" id="find-form" autocomplete="off">
+    <label class="find-label">Find
+      <input type="search" id="find-query" placeholder="Filter these listings… e.g. private bath Chinatown under 1300" maxlength="400">
+    </label>
+    <button type="submit" class="link-btn primary" id="find-btn">Find</button>
+    <button type="button" class="link-btn" id="find-clear" hidden>Clear</button>
+    <span class="find-status" id="find-status"></span>
+  </form>
 
   <div class="stats" id="stats">
     <span class="stat">To apply <strong id="stat-to-apply">…</strong></span>
@@ -50,6 +64,14 @@
         <option value="zillow">Zillow</option>
       </select>
     </label>
+    <label>Bathroom
+      <select id="filter-bath">
+        <option value="all">All</option>
+        <option value="private">Private bathroom</option>
+        <option value="shared">Shared bathroom</option>
+        <option value="unknown">Unknown</option>
+      </select>
+    </label>
     <label>Max $/mo
       <input type="number" id="filter-price" placeholder="Any" min="0" step="50">
     </label>
@@ -58,6 +80,9 @@
     </label>
     <label class="check-label" style="margin-left: 0.65rem;">
       <input type="checkbox" id="filter-memo"> Memo only
+    </label>
+    <label class="check-label" style="margin-left: 0.65rem;">
+      <input type="checkbox" id="filter-multiroom"> 2+ rooms in house
     </label>
     <span class="row-count" id="row-count"></span>
   </div>
@@ -70,7 +95,7 @@
           <th data-sort="liked" class="star-col" title="Liked">★</th>
           <th data-sort="address">Address</th>
           <th data-sort="title">Title</th>
-          <th data-sort="details">Details</th>
+          <th data-sort="details">Details(Click)</th>
           <th data-sort="price">$/mo</th>
           <th data-sort="sqft">Sqft</th>
           <th data-sort="movein">Move-in</th>
@@ -91,6 +116,7 @@
   <nav class="pagination" id="pagination" aria-label="Listing pages"></nav>
 
   <div class="toast" id="toast"></div>
-  <script src="/app.js?v=17" defer></script>
+  <script src="/find.js?v=1"></script>
+  <script src="/app.js?v=21" defer></script>
 </body>
 </html>

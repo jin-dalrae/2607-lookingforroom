@@ -5,15 +5,13 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from lfr.config import MOVE_IN_SCORING
+from lfr.config import MOVE_IN_SCORING, SEARCH_CRITERIA
 
 from lfr.listings.move_in import is_utility_fraction, move_in_after_cutoff_hit
 from lfr.score.criteria import (
     MOVE_IN_FIT_VALUES,
     MOVE_IN_REFERENCE_TODAY,
     MOVE_IN_TARGET_END,
-    MOVE_IN_TARGET_START,
-    MOVE_IN_WINDOW_END,
     MOVE_IN_WINDOW_START,
     _MONTH_NAMES,
     _MOVE_IN_AUGUST_RE,
@@ -55,7 +53,8 @@ def _qualifier_to_day(qualifier: str, *, month: int | None = None) -> int:
     if q == "mid":
         return 12
     if month == 8:
-        return MOVE_IN_TARGET_END.day
+        end = SEARCH_CRITERIA.get("move_in_end") or MOVE_IN_TARGET_END
+        return end.day
     return 25
 
 
@@ -139,7 +138,19 @@ def _classify_move_in_date(
     signal_kind: str,
     signal_text: str = "",
 ) -> str:
-    """Classify move-in vs hard window August 1 – Aug 18, 2026."""
+    """Classify move-in vs the active user's window (or open if none)."""
+    if not SEARCH_CRITERIA.get("require_move_in_window", True):
+        if parsed_date is None:
+            if signal_kind in ("immediate", "flexible"):
+                return "ideal"
+            return "maybe"
+        cutoff = SEARCH_CRITERIA.get("move_in_hard_reject_after")
+        if cutoff is not None and parsed_date >= cutoff:
+            return "too_late"
+        return "ideal"
+
+    window_end = SEARCH_CRITERIA.get("move_in_end")
+    window_start = SEARCH_CRITERIA.get("move_in_start") or MOVE_IN_WINDOW_START
     if parsed_date is None:
         if signal_kind == "immediate":
             return "risky"
@@ -147,13 +158,13 @@ def _classify_move_in_date(
             return "unknown"
         return "unknown"
 
-    if parsed_date > MOVE_IN_WINDOW_END:
+    if window_end is not None and parsed_date > window_end:
         return "too_late"
 
-    if parsed_date < MOVE_IN_WINDOW_START:
+    if window_start is not None and parsed_date < window_start:
         return "too_early"
 
-    if MOVE_IN_WINDOW_START <= parsed_date <= MOVE_IN_WINDOW_END:
+    if window_start is not None and window_end is not None and window_start <= parsed_date <= window_end:
         return "ideal"
 
     return "unknown"
@@ -230,7 +241,9 @@ def _analyze_move_in(
             move_in_signal = immediate_candidates[0][0] if immediate_candidates else "available now"
     elif immediate_candidates:
         move_in_signal = immediate_candidates[0][0]
-        move_in_fit = "risky"
+        move_in_fit = (
+            "ideal" if not SEARCH_CRITERIA.get("require_move_in_window", True) else "risky"
+        )
     elif has_flexible:
         move_in_signal = "flexible move-in"
         move_in_fit = "ideal"
@@ -247,6 +260,16 @@ def _analyze_move_in(
 
 def _move_in_fit_note(move_in_fit: str, move_in_signal: str | None) -> str | None:
     signal = move_in_signal or "unspecified"
+    if not SEARCH_CRITERIA.get("require_move_in_window", True):
+        notes = {
+            "ideal": f"move-in {signal}",
+            "maybe": f"move-in {signal} — unspecified window",
+            "risky": "available now",
+            "too_early": f"move-in {signal}",
+            "too_late": f"move-in {signal} — later than needed",
+            "unknown": "move-in unspecified",
+        }
+        return notes.get(move_in_fit)
     notes = {
         "ideal": f"move-in {signal} — Aug 1–18 OK",
         "maybe": f"move-in {signal} — outside window",

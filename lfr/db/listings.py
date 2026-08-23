@@ -142,6 +142,8 @@ def upsert_listing(
     posted_at: str | None = None,
     rental_address: str | None = None,
     source: str = "craigslist",
+    beds: int | None = None,
+    baths: int | None = None,
 ) -> str:
     """
     Insert or update a listing keyed by URL.
@@ -183,8 +185,9 @@ def upsert_listing(
                 """
                 INSERT INTO listings (
                     id, url, title, price, neighborhood, description,
-                    move_in_date, posted_at, rental_address, first_seen, last_seen, source
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    move_in_date, posted_at, rental_address, first_seen, last_seen, source,
+                    beds, baths
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     listing_id,
@@ -199,6 +202,8 @@ def upsert_listing(
                     now,
                     now,
                     source,
+                    beds,
+                    baths,
                 ),
             )
             conn.commit()
@@ -253,6 +258,12 @@ def upsert_listing(
             if is_estimated_posted(existing) or posted_at != existing.get("posted_at"):
                 updates["posted_at"] = posted_at
                 changed = True
+        if beds is not None and beds != existing.get("beds"):
+            updates["beds"] = beds
+            changed = True
+        if baths is not None and baths != existing.get("baths"):
+            updates["baths"] = baths
+            changed = True
         if rental_address is not None and rental_address != existing["rental_address"]:
             old_addr = (existing.get("rental_address") or "").strip()
             new_addr = rental_address.strip()

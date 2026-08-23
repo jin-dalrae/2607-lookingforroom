@@ -5,31 +5,86 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Listing map</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
-  <link rel="stylesheet" href="/style.css">
-  <style>
-    #map { height: calc(100vh - 7.5rem); min-height: 24rem; border-radius: 12px; }
-    .map-toolbar { margin: 0.75rem 0; }
-    .map-legend { font-size: 0.85rem; color: var(--muted); }
-  </style>
+  <link rel="stylesheet" href="/style.css?v=4">
 </head>
-<body>
-  <h1>Listing map</h1>
-  <p class="hint">
-    Pins use neighborhood/address centroids — approximate, not exact units.
+<body class="map-page">
+  <div class="title-row">
+    <h1 id="page-title">Listing map</h1>
+    <label class="user-switch">Account
+      <select id="user-select" aria-label="Switch account" hidden></select>
+    </label>
+  </div>
+  <p class="hint map-intro">
+    The list shows only homes in the current map, like Airbnb. Pan or zoom to update.
     <a href="/" id="back-to-queue">Back to apply queue</a>
   </p>
+
+  <form class="find-bar" id="find-form" autocomplete="off">
+    <label class="find-label">Find
+      <input type="search" id="find-query" placeholder="Filter these listings… e.g. private bath Chinatown under 1300" maxlength="400">
+    </label>
+    <button type="submit" class="link-btn primary" id="find-btn">Find</button>
+    <button type="button" class="link-btn" id="find-clear" hidden>Clear</button>
+    <span class="find-status" id="find-status"></span>
+  </form>
+
   <div class="toolbar map-toolbar">
     <label>Search
-      <input type="search" id="filter-search" placeholder="Title, area…" autocomplete="off">
+      <input type="search" id="filter-search" placeholder="Title, city, address…" autocomplete="off">
+    </label>
+    <label>Status
+      <select id="filter-status">
+        <option value="to_apply">To apply</option>
+        <option value="applied">Applied</option>
+        <option value="replied">Replied</option>
+        <option value="visited">Visited</option>
+        <option value="skipped">Skipped</option>
+        <option value="gone">Gone</option>
+        <option value="all">All</option>
+      </select>
+    </label>
+    <label>Source
+      <select id="filter-source">
+        <option value="all">All</option>
+        <option value="craigslist">Craigslist</option>
+        <option value="facebook">Facebook</option>
+        <option value="zillow">Zillow</option>
+      </select>
+    </label>
+    <label>Bathroom
+      <select id="filter-bath">
+        <option value="all">All</option>
+        <option value="private">Private bathroom</option>
+        <option value="shared">Shared bathroom</option>
+        <option value="unknown">Unknown</option>
+      </select>
+    </label>
+    <label>Max $/mo
+      <input type="number" id="filter-price" placeholder="Any" min="0" step="50">
     </label>
     <label class="check-label">
       <input type="checkbox" id="filter-liked"> Liked only
     </label>
+    <label class="check-label">
+      <input type="checkbox" id="filter-memo"> Memo only
+    </label>
+    <label class="check-label">
+      <input type="checkbox" id="filter-multiroom"> 2+ rooms in house
+    </label>
     <span class="row-count" id="pin-count"></span>
   </div>
   <p class="map-legend" id="map-hint">Loading…</p>
-  <div id="map"></div>
+
+  <div class="map-split">
+    <div class="map-pane">
+      <div id="map"></div>
+    </div>
+    <aside class="map-list" id="map-list" aria-label="Filtered listings"></aside>
+  </div>
+
+  <div class="toast" id="toast"></div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
-  <script src="/map.js" defer></script>
+  <script src="/find.js?v=1"></script>
+  <script src="/map.js?v=7" defer></script>
 </body>
 </html>

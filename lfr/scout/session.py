@@ -36,6 +36,19 @@ Paste a listing URL into apply / Gmail draft:
 """.strip()
 
 
+def _logged_in(context, page) -> bool:
+    try:
+        cookies = context.cookies()
+    except Exception:
+        cookies = []
+    if not any(cookie.get("name") == "c_user" and cookie.get("value") for cookie in cookies):
+        return False
+    url = (page.url or "").lower()
+    if "login" in url or "checkpoint" in url:
+        return False
+    return True
+
+
 def run_interactive_login() -> None:
     try:
         from playwright.sync_api import sync_playwright
@@ -45,18 +58,32 @@ def run_interactive_login() -> None:
         ) from exc
 
     print("Opening Chromium — log into Facebook in the browser window.")
-    print("When your feed or Marketplace loads, come back here and press Enter.\n")
+    print("2FA / checkpoint is OK; wait until your feed or Marketplace is visible.\n")
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False)
         context = browser.new_context()
         page = context.new_page()
         page.goto("https://www.facebook.com/", wait_until="domcontentloaded")
-        try:
-            input("Press Enter after you are logged in… ")
-        except EOFError:
-            print("Non-interactive shell — waiting 120s for manual login…", file=sys.stderr)
-            page.wait_for_timeout(120_000)
+
+        deadline = __import__("time").time() + 600
+        logged_in = False
+        while __import__("time").time() < deadline:
+            if _logged_in(context, page):
+                logged_in = True
+                break
+            remaining = int(deadline - __import__("time").time())
+            print(f"Waiting for Facebook login… ({remaining}s left)", flush=True)
+            page.wait_for_timeout(3000)
+
+        if not logged_in:
+            browser.close()
+            raise RuntimeError(
+                "Facebook login did not finish in 10 minutes. "
+                "Run: python scout_facebook.py login"
+            )
+
+        page.wait_for_timeout(2000)
         context.storage_state(path=str(STATE_PATH))
         browser.close()
 

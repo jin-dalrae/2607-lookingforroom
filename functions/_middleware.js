@@ -112,7 +112,7 @@ function safeRedirect(value) {
 export async function onRequest(context) {
   const { request, env, next } = context;
   const url = new URL(request.url);
-  const password = env.SITE_PASSWORD || "9809";
+  const password = env.SITE_PASSWORD || "1111";
 
   if (url.pathname === LOGIN_PATH) {
     if (request.method === "POST") {

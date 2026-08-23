@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Hard-filter listings by move-in window and location (no score ranking)."""
+"""Hard-filter listings by the active user's budget, location, and move-in rules."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ def price_in_focus_band(row: dict[str, Any]) -> bool:
 
 
 def price_within_budget(row: dict[str, Any]) -> bool:
-    """True when rent is at or below match max (default $1300)."""
+    """True when rent is at or below the active user's max."""
     price = row.get("price")
     if price is None:
         return False
@@ -48,7 +48,9 @@ def price_within_budget(row: dict[str, Any]) -> bool:
 
 
 def move_in_fits_window(row: dict[str, Any]) -> bool:
-    """True only when move-in is August 1 – Aug 18, 2026."""
+    """True when move-in matches the active user's window (or any date if none)."""
+    if not SEARCH_CRITERIA.get("require_move_in_window", True):
+        return True
     payload = _flags_payload(row.get("flags_json"))
     fit = str(payload.get("move_in_fit") or "unknown")
     return fit in MOVE_IN_FITS_OK
@@ -56,6 +58,9 @@ def move_in_fits_window(row: dict[str, Any]) -> bool:
 
 def queue_excluded_move_in(row: dict[str, Any]) -> bool:
     """True when a listing should not appear in the apply-queue candidate pool."""
+    if not SEARCH_CRITERIA.get("require_move_in_window", True):
+        if SEARCH_CRITERIA.get("move_in_hard_reject_after") is None:
+            return False
     payload = _flags_payload(row.get("flags_json"))
     fit = str(payload.get("move_in_fit") or "")
     if fit in ("too_late", "too_early"):
@@ -76,7 +81,8 @@ def queue_excluded_move_in(row: dict[str, Any]) -> bool:
             from datetime import date
 
             parsed = date.fromisoformat(move_in[:10])
-            if parsed > SEARCH_CRITERIA["move_in_end"]:
+            end = SEARCH_CRITERIA.get("move_in_end")
+            if end is not None and parsed > end:
                 return True
         except ValueError:
             pass
@@ -95,6 +101,10 @@ def listing_matches_criteria(
 
     payload = _flags_payload(row.get("flags_json"))
     if exclude_short_term:
+        from lfr.score.listing_rules import listing_is_short_stay
+
+        if listing_is_short_stay(row):
+            return False
         if payload.get("short_term_reject"):
             return False
         rent_period = str(payload.get("rent_period") or "").lower()
@@ -117,7 +127,7 @@ def listing_matches_criteria(
     if not isinstance(room_flags, list):
         room_flags = [str(room_flags)]
 
-    if not move_in_fits_window(row):
+    if SEARCH_CRITERIA.get("require_move_in_window", True) and not move_in_fits_window(row):
         return False
 
     if str(payload.get("move_in_fit") or "") == "too_late":

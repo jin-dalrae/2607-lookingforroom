@@ -10,8 +10,8 @@ from lfr.paths import PROJECT_ROOT
 load_dotenv(PROJECT_ROOT / ".env")
 load_dotenv()  # also cwd .env if present
 
-# --- Search criteria ---
-SEARCH_CRITERIA = {
+# --- Search criteria (August 2026 original user; live criteria via SEARCH_CRITERIA lazy map) ---
+ORIGINAL_SEARCH_CRITERIA = {
     "max_rent": 1300,
     "price_focus_min": 800,
     "price_focus_max": 1000,
@@ -27,6 +27,7 @@ SEARCH_CRITERIA = {
     "move_in_hard_reject_after": date(2026, 8, 19),
     "move_in_flex_weeks": 0,
     "use_filter_not_score": True,
+    "require_move_in_window": True,
     "move_in_window": {
         "target": "August 1 – Aug 18, 2026",
         "start": "August 1",
@@ -167,6 +168,8 @@ NORTH_BEACH_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=north+beach+room"
 RUSSIAN_HILL_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=russian+hill+room"
 AUGUST_ROOM_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=august+room+available"
 VAN_NESS_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=van+ness+room"
+BERNAL_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=bernal+heights+room"
+PANHANDLE_CRAIGSLIST_URL = f"{_CL_SFC_ROO}&query=panhandle+room"
 
 WEST_OAKLAND_CRAIGSLIST_URL = (
     "https://sfbay.craigslist.org/search/eby/roo"
@@ -192,6 +195,32 @@ SOUTH_SF_CRAIGSLIST_URL = (
     "&query=south+san+francisco"
 )
 
+ORIGINAL_CRAIGSLIST_SEARCHES = (
+    ("San Francisco", CRAIGSLIST_URL),
+    ("Dogpatch", DOGPATCH_CRAIGSLIST_URL),
+    ("Noe Valley", NOE_VALLEY_CRAIGSLIST_URL),
+    ("Mission District", MISSION_CRAIGSLIST_URL),
+    ("Inner Mission", INNER_MISSION_CRAIGSLIST_URL),
+    ("Hayes Valley", HAYES_CRAIGSLIST_URL),
+    ("Castro", CASTRO_CRAIGSLIST_URL),
+    ("Bernal Heights", BERNAL_CRAIGSLIST_URL),
+    ("Panhandle", PANHANDLE_CRAIGSLIST_URL),
+    ("Marina", MARINA_CRAIGSLIST_URL),
+    ("Chinatown", CHINATOWN_CRAIGSLIST_URL),
+    ("North Beach", NORTH_BEACH_CRAIGSLIST_URL),
+    ("Russian Hill", RUSSIAN_HILL_CRAIGSLIST_URL),
+    ("Downtown SF", DOWNTOWN_SF_CRAIGSLIST_URL),
+    ("SOMA", SOMA_CRAIGSLIST_URL),
+    ("South Beach", SOUTH_BEACH_CRAIGSLIST_URL),
+    ("Mission Bay", MISSION_BAY_CRAIGSLIST_URL),
+    ("Potrero Hill", POTRERO_CRAIGSLIST_URL),
+    ("Civic Center", CIVIC_CRAIGSLIST_URL),
+    ("Financial District", FINANCIAL_CRAIGSLIST_URL),
+    ("Embarcadero", EMBARCADERO_CRAIGSLIST_URL),
+    ("Van Ness", VAN_NESS_CRAIGSLIST_URL),
+    ("August available", AUGUST_ROOM_CRAIGSLIST_URL),
+)
+
 # --- Facebook Marketplace (requires: python scout_facebook.py login) ---
 _FB_SF_SEARCH = (
     "https://www.facebook.com/marketplace/sanfrancisco/search/"
@@ -215,7 +244,7 @@ def _fb_oak(query: str) -> str:
     return f"{_FB_OAK_SEARCH}{quote(query)}"
 
 
-FACEBOOK_MARKETPLACE_SEARCHES = (
+ORIGINAL_FACEBOOK_MARKETPLACE_SEARCHES = (
     ("SF private room", _fb_sf("private room")),
     ("SF room rent", _fb_sf("room for rent")),
     ("SF August room", _fb_sf("august room available")),
@@ -241,7 +270,7 @@ FACEBOOK_MARKETPLACE_SEARCHES = (
 )
 
 # --- Zillow (requires Playwright) ---
-ZILLOW_SEARCHES = (
+ORIGINAL_ZILLOW_SEARCHES = (
     ("SF Rentals under 1300", "https://www.zillow.com/san-francisco-ca/rentals/0-1300_mp/"),
 )
 
@@ -283,6 +312,18 @@ LOCATION_ALLOWED = {
             "russian hill",
             "north beach",
             "chinatown",
+            "telegraph hill",
+            "nob hill",
+            "union square",
+            "tenderloin",
+            "japantown",
+            "alamo square",
+            "western addition",
+            "fisherman's wharf",
+            "duboce",
+            "fillmore",
+            "yerba buena",
+            "rincon hill",
             "bayview",
             "marina",
             "marina district",
@@ -293,7 +334,13 @@ LOCATION_ALLOWED = {
             # Richmond / Sunset / Ingleside / Excelsior hard-excluded via LOCATION_EXCLUDE
             # Oakland / Emeryville hard-excluded — not in whitelist
         ),
-        "url_markers": ("/san-francisco-", "sfc/", "search/sfc", "marketplace/sanfrancisco"),
+        "url_markers": (
+            "/san-francisco-",
+            "san-francisco-ca",
+            "sfc/",
+            "search/sfc",
+            "marketplace/sanfrancisco",
+        ),
     },
     # South San Francisco hard-excluded — terms kept only for detection helpers below
 }
@@ -349,6 +396,13 @@ LOCATION_EXCLUDE = {
         "walnut creek",
         "daly city",
         "colma",
+        "mill valley",
+        "sausalito",
+        "marin",
+        "tiburon",
+        "larkspur",
+        "pacifica",
+        "south san francisco",
         "pittsburg",
         "pittsburgh",
         "antioch",
@@ -447,7 +501,7 @@ BUDGET_REALISM = {
 }
 
 # --- Location preferences (focus: Dogpatch / Noe / Mission / Hayes / downtown) ---
-LOCATION_PREFERENCES = {
+ORIGINAL_LOCATION_PREFERENCES = {
     "current_location": "SOMA",
     "tiers": {
         "focus_core": {
@@ -726,3 +780,581 @@ TRANSIT_PREFERENCES = {
 AI_MODEL = os.getenv("AI_MODEL", "gemini-3.5-flash")
 GCP_KEY = os.getenv("GCP_KEY", "")
 GENERATIVE_LANGUAGE_API_KEY = os.getenv("generative_language_api_key", "")
+GEMINI_API_KEY = (
+    os.getenv("GEMINI_API_KEY", "").strip()
+    or (GCP_KEY or "").strip()
+    or (GENERATIVE_LANGUAGE_API_KEY or "").strip()
+)
+HASDATA_API_KEY = (
+    os.getenv("HASDATA_API_KEY", "").strip()
+    or os.getenv("ZILLOW_API_KEY", "").strip()
+)
+
+
+class _LazyMapping(dict):
+    """Dict-like object that re-reads a loader on every access (active user)."""
+
+    def __init__(self, loader):
+        super().__init__()
+        self._loader = loader
+
+    def _data(self) -> dict:
+        data = self._loader()
+        return data if isinstance(data, dict) else {}
+
+    def __getitem__(self, key):
+        return self._data()[key]
+
+    def get(self, key, default=None):
+        return self._data().get(key, default)
+
+    def __iter__(self):
+        return iter(self._data())
+
+    def keys(self):
+        return self._data().keys()
+
+    def values(self):
+        return self._data().values()
+
+    def items(self):
+        return self._data().items()
+
+    def __contains__(self, key):
+        return key in self._data()
+
+    def __len__(self):
+        return len(self._data())
+
+    def __bool__(self):
+        return len(self._data()) > 0
+
+    def __repr__(self) -> str:
+        return repr(self._data())
+
+
+class _LazySeq:
+    """Sequence that re-reads a loader on iteration (active user scout URLs)."""
+
+    def __init__(self, loader):
+        self._loader = loader
+
+    def _data(self):
+        return tuple(self._loader())
+
+    def __iter__(self):
+        return iter(self._data())
+
+    def __len__(self):
+        return len(self._data())
+
+    def __getitem__(self, idx):
+        return self._data()[idx]
+
+    def __bool__(self):
+        return len(self) > 0
+
+    def __repr__(self) -> str:
+        return repr(self._data())
+
+
+_HOOD_CL_QUERY = {
+    "Chinatown": "chinatown room",
+    "North Beach": "north beach room",
+    "Hayes Valley": "hayes valley room",
+    "Mission": "mission district room",
+    "Inner Mission": "inner mission room",
+    "SOMA": "soma room",
+    "South Beach": "south beach room",
+    "Financial District": "financial district room",
+    "Nob Hill": "nob hill room",
+    "Russian Hill": "russian hill room",
+    "Telegraph Hill": "telegraph hill room",
+    "Civic Center": "civic center room",
+    "Union Square": "union square room",
+    "Tenderloin": "tenderloin room",
+    "Mission Bay": "mission bay room",
+    "Dogpatch": "dogpatch room",
+    "Noe Valley": "noe valley room",
+    "Castro": "castro room",
+    "Marina": "marina room",
+    "Bernal Heights": "bernal heights room",
+    "Panhandle": "panhandle room",
+    "Potrero Hill": "potrero hill room",
+    "Embarcadero": "embarcadero room",
+    "Van Ness": "van ness room",
+    "Downtown SF": "downtown sf room",
+    "Japantown": "japantown room",
+    "Lower Haight": "lower haight room",
+    "Alamo Square": "alamo square room",
+    "Western Addition": "western addition room",
+    "Fillmore": "fillmore room",
+    "Duboce Triangle": "duboce triangle room",
+    "Mission Dolores": "dolores park room",
+    "Fisherman's Wharf": "fisherman wharf room",
+    "Rincon Hill": "rincon hill room",
+    "Yerba Buena": "yerba buena room",
+    "Jackson Square": "jackson square room",
+}
+
+_HOOD_ZILLOW_SLUG = {
+    "Chinatown": "chinatown-san-francisco-ca",
+    "North Beach": "north-beach-san-francisco-ca",
+    "Hayes Valley": "hayes-valley-san-francisco-ca",
+    "Mission": "mission-district-san-francisco-ca",
+    "Inner Mission": "mission-district-san-francisco-ca",
+    "SOMA": "south-of-market-san-francisco-ca",
+    "South of Market": "south-of-market-san-francisco-ca",
+    "South Beach": "south-beach-san-francisco-ca",
+    "Financial District": "financial-district-san-francisco-ca",
+    "Nob Hill": "nob-hill-san-francisco-ca",
+    "Russian Hill": "russian-hill-san-francisco-ca",
+    "Telegraph Hill": "telegraph-hill-san-francisco-ca",
+    "Civic Center": "civic-center-san-francisco-ca",
+    "Union Square": "downtown-san-francisco-ca",
+    "Tenderloin": "tenderloin-san-francisco-ca",
+    "Mission Bay": "mission-bay-san-francisco-ca",
+    "Dogpatch": "dogpatch-san-francisco-ca",
+    "Noe Valley": "noe-valley-san-francisco-ca",
+    "Castro": "castro-san-francisco-ca",
+    "Marina": "marina-district-san-francisco-ca",
+    "Bernal Heights": "bernal-heights-san-francisco-ca",
+    "Potrero Hill": "potrero-hill-san-francisco-ca",
+    "Japantown": "japantown-san-francisco-ca",
+    "Lower Haight": "lower-haight-san-francisco-ca",
+    "Alamo Square": "alamo-square-san-francisco-ca",
+    "Western Addition": "western-addition-san-francisco-ca",
+    "Fisherman's Wharf": "fishermans-wharf-san-francisco-ca",
+    "Embarcadero": "embarcadero-san-francisco-ca",
+    "Rincon Hill": "rincon-hill-san-francisco-ca",
+    "Yerba Buena": "yerba-buena-san-francisco-ca",
+}
+
+_HOOD_TERMS = {
+    "Chinatown": ("chinatown", "94108"),
+    "North Beach": ("north beach", "telegraph hill", "94133"),
+    "Hayes Valley": ("hayes valley", "hayes", "94102"),
+    "Mission": (
+        "inner mission",
+        "mission district",
+        "the mission",
+        "mission /",
+        "mission,",
+        "94110",
+    ),
+    "Inner Mission": ("inner mission", "94110"),
+    "SOMA": ("soma", "so ma", "south of market", "yerba buena", "design district", "94103", "94105"),
+    "South Beach": ("south beach", "rincon hill"),
+    "Financial District": ("financial district", "94104", "94111"),
+    "Nob Hill": ("nob hill", "94109"),
+    "Russian Hill": ("russian hill",),
+    "Telegraph Hill": ("telegraph hill",),
+    "Civic Center": ("civic center", "van ness"),
+    "Union Square": ("union square", "downtown sf", "downtown san francisco"),
+    "Tenderloin": ("tenderloin",),
+    "Mission Bay": ("mission bay", "china basin"),
+    "Dogpatch": ("dogpatch",),
+    "Noe Valley": ("noe valley",),
+    "Castro": ("castro", "upper market"),
+    "Marina": ("marina", "marina district", "cow hollow"),
+    "Bernal Heights": ("bernal heights", "bernal"),
+    "Panhandle": ("panhandle", "nopa", "lower haight"),
+    "Potrero Hill": ("potrero hill", "potrero"),
+    "Embarcadero": ("embarcadero",),
+    "Van Ness": ("van ness",),
+    "Downtown SF": ("downtown sf", "downtown san francisco"),
+    "Japantown": ("japantown", "japan town"),
+    "Lower Haight": ("lower haight", "haight and fillmore"),
+    "Alamo Square": ("alamo square",),
+    "Western Addition": ("western addition",),
+    "Fillmore": ("fillmore district", "the fillmore"),
+    "Duboce Triangle": ("duboce triangle", "duboce"),
+    "Mission Dolores": ("mission dolores", "dolores park", "dolores heights"),
+    "Valencia Corridor": ("valencia corridor", "valencia street", "on valencia"),
+    "Fisherman's Wharf": ("fisherman's wharf", "fishermans wharf", "the wharf", "pier 39"),
+    "Wharf": ("fisherman's wharf", "the wharf"),
+    "Rincon Hill": ("rincon hill",),
+    "Yerba Buena": ("yerba buena",),
+    "Transbay": ("transbay", "salesforce transit"),
+    "Jackson Square": ("jackson square",),
+    "Design District": ("design district",),
+}
+
+# One ring of adjacent neighborhoods. Named focus areas automatically
+# include these even if the user did not list every surrounding hood.
+_HOOD_AROUND = {
+    "Chinatown": (
+        "Financial District",
+        "Nob Hill",
+        "Telegraph Hill",
+        "Union Square",
+        "Embarcadero",
+        "Russian Hill",
+        "Downtown SF",
+        "Jackson Square",
+        "Tenderloin",
+    ),
+    "North Beach": (
+        "Telegraph Hill",
+        "Russian Hill",
+        "Fisherman's Wharf",
+        "Embarcadero",
+        "Chinatown",
+        "Wharf",
+    ),
+    "Hayes Valley": (
+        "Civic Center",
+        "Lower Haight",
+        "Alamo Square",
+        "Western Addition",
+        "Japantown",
+        "Tenderloin",
+        "Van Ness",
+        "Duboce Triangle",
+        "Fillmore",
+        "Castro",
+    ),
+    "Mission": (
+        "Inner Mission",
+        "Mission Dolores",
+        "Potrero Hill",
+        "Bernal Heights",
+        "Castro",
+        "Mission Bay",
+        "Noe Valley",
+        "Valencia Corridor",
+    ),
+    "SOMA": (
+        "South Beach",
+        "Mission Bay",
+        "Rincon Hill",
+        "Yerba Buena",
+        "Financial District",
+        "Civic Center",
+        "Potrero Hill",
+        "Embarcadero",
+        "Transbay",
+        "Design District",
+        "Tenderloin",
+        "Union Square",
+    ),
+    "Inner Mission": ("Mission", "Potrero Hill", "Bernal Heights", "Castro"),
+    "South Beach": ("SOMA", "Mission Bay", "Financial District", "Embarcadero"),
+}
+
+_SOMA_NEARBY = frozenset({
+    "South Beach",
+    "Mission Bay",
+    "SOMA",
+    "Rincon Hill",
+    "Yerba Buena",
+    "Transbay",
+    "Design District",
+    "Potrero Hill",
+})
+
+
+def neighborhoods_around_named(
+    preferred: list[str] | None,
+    extra_nearby: list[str] | None = None,
+) -> list[str]:
+    """Surrounding hoods for a focus list — one ring, plus any extras the user named."""
+    focus = [str(name).strip() for name in (preferred or []) if str(name).strip()]
+    extras = [str(name).strip() for name in (extra_nearby or []) if str(name).strip()]
+    seen = set(focus)
+    around: list[str] = []
+    queues = {hood: list(_HOOD_AROUND.get(hood, ())) for hood in focus}
+    while queues:
+        progressed = False
+        for hood in list(queues):
+            neighbors = queues[hood]
+            if not neighbors:
+                queues.pop(hood, None)
+                continue
+            neighbor = neighbors.pop(0)
+            progressed = True
+            if neighbor not in seen:
+                seen.add(neighbor)
+                around.append(neighbor)
+        if not progressed:
+            break
+    for hood in extras:
+        if hood not in seen:
+            seen.add(hood)
+            around.append(hood)
+    return around
+
+
+def get_search_criteria() -> dict:
+    from lfr.users import current_user
+
+    return current_user().search_criteria
+
+
+def get_location_preferences() -> dict:
+    from lfr.users import current_user
+
+    user = current_user()
+    if user.search_preset == "original":
+        return ORIGINAL_LOCATION_PREFERENCES
+    return _location_preferences_from_criteria(user.search_criteria)
+
+
+def _terms_for_hoods(names: list[str]) -> tuple[str, ...]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        for term in _HOOD_TERMS.get(name, (name.lower(),)):
+            if term not in seen:
+                seen.add(term)
+                terms.append(term)
+    return tuple(terms)
+
+
+def _location_preferences_from_criteria(criteria: dict) -> dict:
+    import copy
+
+    prefs = copy.deepcopy(ORIGINAL_LOCATION_PREFERENCES)
+    preferred = list(criteria.get("neighborhoods_preferred") or [])
+    nearby = list(criteria.get("neighborhoods_nearby") or [])
+    around = list(
+        criteria.get("neighborhoods_around")
+        or neighborhoods_around_named(preferred, nearby)
+    )
+    prefs["current_location"] = criteria.get("current_location") or (preferred[0] if preferred else "Chinatown")
+    core_terms = _terms_for_hoods(preferred)
+    around_soma = [n for n in around if n in _SOMA_NEARBY]
+    around_center = [n for n in around if n not in _SOMA_NEARBY]
+    if core_terms:
+        prefs["tiers"]["focus_core"]["terms"] = core_terms
+        prefs["tiers"]["focus_core"]["boost"] = 18
+        prefs["tiers"]["focus_core"]["digest_label"] = "Focus: " + " / ".join(preferred)
+    soma_terms = _terms_for_hoods(around_soma)
+    if soma_terms:
+        merged = tuple(dict.fromkeys(soma_terms + prefs["tiers"]["soma_adjacent"]["terms"]))
+        prefs["tiers"]["soma_adjacent"]["terms"] = merged
+        prefs["tiers"]["soma_adjacent"]["boost"] = 12
+        prefs["tiers"]["soma_adjacent"]["digest_label"] = "Around SOMA / Mission Bay"
+    center_terms = _terms_for_hoods(around_center)
+    if center_terms:
+        merged = tuple(dict.fromkeys(center_terms + prefs["tiers"]["city_center"]["terms"]))
+        prefs["tiers"]["city_center"]["terms"] = merged
+        prefs["tiers"]["city_center"]["boost"] = 10
+        prefs["tiers"]["city_center"]["digest_label"] = "Around " + " / ".join(preferred)
+        prefs["tiers"]["city_center"]["flag"] = "around_focus"
+    # Inner-SF leftovers (Potrero / Japantown / Haight) stay a weaker but included band.
+    prefs["tiers"]["central_adjacent"]["boost"] = 6
+    prefs["tiers"]["central_adjacent"]["digest_label"] = "Central SF near focus areas"
+    return prefs
+
+
+def _cl_rooms_url(max_price: int) -> str:
+    return (
+        "https://sfbay.craigslist.org/search/sfc/roo"
+        f"?max_price={max_price}&private_room=1&availabilityMode=0"
+    )
+
+
+def _cl_apa_url(max_price: int, *, min_bed: int = 1, max_bed: int = 1) -> str:
+    return (
+        "https://sfbay.craigslist.org/search/sfc/apa"
+        f"?max_price={max_price}&min_bedrooms={min_bed}&max_bedrooms={max_bed}"
+        "&availabilityMode=0"
+    )
+
+
+def craigslist_search_urls() -> list[tuple[str, str]]:
+    from lfr.users import current_user
+
+    user = current_user()
+    if user.search_preset == "original":
+        return list(ORIGINAL_CRAIGSLIST_SEARCHES)
+
+    criteria = user.search_criteria
+    max_price = int(criteria.get("max_rent") or 1500)
+    rooms = _cl_rooms_url(max_price)
+    urls: list[tuple[str, str]] = [("San Francisco rooms", rooms)]
+    if criteria.get("scout_apartments", True):
+        urls.append(("SF 1 bed apartments", _cl_apa_url(max_price, min_bed=1, max_bed=1)))
+    seen_queries: set[str] = set()
+    preferred = list(criteria.get("neighborhoods_preferred") or [])
+    around = list(
+        criteria.get("neighborhoods_around")
+        or neighborhoods_around_named(preferred, list(criteria.get("neighborhoods_nearby") or []))
+    )
+    for hood in preferred + around:
+        query = _HOOD_CL_QUERY.get(hood) or f"{hood.lower()} room"
+        if query in seen_queries:
+            continue
+        seen_queries.add(query)
+        urls.append((hood, f"{rooms}&query={query.replace(' ', '+')}"))
+    for label, query in (
+        ("1r1b room", "1br 1ba"),
+        ("2r2b room", "2br 2ba room"),
+        ("3r2b room", "3br 2ba room"),
+        ("3r3b room", "3br 3ba room"),
+    ):
+        urls.append((label, f"{rooms}&query={query.replace(' ', '+')}"))
+    return urls
+
+
+def _facebook_search_url(query: str, *, max_price: int) -> str:
+    from urllib.parse import quote
+
+    return (
+        "https://www.facebook.com/marketplace/sanfrancisco/search/"
+        f"?maxPrice={max_price}&exact=false&query={quote(query)}"
+    )
+
+
+def facebook_marketplace_searches() -> list[tuple[str, str]]:
+    from lfr.users import current_user
+
+    user = current_user()
+    if user.search_preset == "original":
+        return list(ORIGINAL_FACEBOOK_MARKETPLACE_SEARCHES)
+
+    criteria = user.search_criteria
+    max_price = int(criteria.get("max_rent") or 1500)
+    queries: list[tuple[str, str]] = [
+        ("SF private room", "private room"),
+        ("SF room rent", "room for rent"),
+        ("SF 1 bedroom", "1 bedroom"),
+        ("SF 1br 1ba", "1br 1ba"),
+        ("SF 2br 2ba room", "2br 2ba room"),
+        ("SF 3br 2ba room", "3br 2ba room"),
+        ("SF 3br 3ba room", "3br 3ba room"),
+    ]
+    preferred = list(criteria.get("neighborhoods_preferred") or [])
+    around = list(
+        criteria.get("neighborhoods_around")
+        or neighborhoods_around_named(preferred, list(criteria.get("neighborhoods_nearby") or []))
+    )
+    hood_cap = 15
+    for hood in (preferred + around)[:hood_cap]:
+        queries.append((f"{hood} room", f"{hood.lower()} room"))
+    seen: set[str] = set()
+    out: list[tuple[str, str]] = []
+    for name, query in queries:
+        key = query.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((name, _facebook_search_url(query, max_price=max_price)))
+    return out
+
+
+def zillow_api_searches() -> list[tuple[str, dict]]:
+    """HasData Zillow Listing API searches for the active user."""
+    from lfr.users import current_user
+
+    user = current_user()
+    criteria = user.search_criteria
+    max_price = int(criteria.get("max_rent") or 1500)
+    searches: list[tuple[str, dict]] = [
+        (
+            f"SF rentals under {max_price}",
+            {
+                "keyword": "San Francisco, CA",
+                "type": "forRent",
+                "price[max]": max_price,
+            },
+        ),
+        (
+            f"SF 1 bed under {max_price}",
+            {
+                "keyword": "San Francisco, CA",
+                "type": "forRent",
+                "price[max]": max_price,
+                "beds[min]": 1,
+                "beds[max]": 1,
+            },
+        ),
+    ]
+    if user.search_preset == "original":
+        return searches
+
+    preferred = list(criteria.get("neighborhoods_preferred") or [])
+    around = list(
+        criteria.get("neighborhoods_around")
+        or neighborhoods_around_named(preferred, list(criteria.get("neighborhoods_nearby") or []))
+    )
+    seen: set[str] = set()
+    for hood in preferred + around:
+        keyword = _HOOD_ZILLOW_KEYWORD.get(hood) or f"{hood}, San Francisco, CA"
+        if keyword in seen:
+            continue
+        seen.add(keyword)
+        searches.append(
+            (
+                f"{hood} rentals",
+                {
+                    "keyword": keyword,
+                    "type": "forRent",
+                    "price[max]": max_price,
+                },
+            )
+        )
+        if len(seen) >= 8:
+            break
+    return searches
+
+
+_HOOD_ZILLOW_KEYWORD = {
+    "Chinatown": "Chinatown, San Francisco, CA",
+    "North Beach": "North Beach, San Francisco, CA",
+    "Hayes Valley": "Hayes Valley, San Francisco, CA",
+    "Mission": "Mission District, San Francisco, CA",
+    "Inner Mission": "Inner Mission, San Francisco, CA",
+    "SOMA": "South of Market, San Francisco, CA",
+    "South Beach": "South Beach, San Francisco, CA",
+    "Financial District": "Financial District, San Francisco, CA",
+    "Nob Hill": "Nob Hill, San Francisco, CA",
+    "Russian Hill": "Russian Hill, San Francisco, CA",
+    "Telegraph Hill": "Telegraph Hill, San Francisco, CA",
+    "Civic Center": "Civic Center, San Francisco, CA",
+    "Lower Haight": "Lower Haight, San Francisco, CA",
+    "Potrero Hill": "Potrero Hill, San Francisco, CA",
+}
+
+
+def zillow_searches() -> list[tuple[str, str]]:
+    from lfr.users import current_user
+
+    user = current_user()
+    if user.search_preset == "original":
+        return list(ORIGINAL_ZILLOW_SEARCHES)
+
+    criteria = user.search_criteria
+    max_price = int(criteria.get("max_rent") or 1500)
+    searches = [
+        (f"SF rentals under {max_price}", f"https://www.zillow.com/san-francisco-ca/rentals/0-{max_price}_mp/"),
+        (
+            f"SF 1 bed under {max_price}",
+            f"https://www.zillow.com/san-francisco-ca/rentals/1-1_beds/0-{max_price}_mp/",
+        ),
+    ]
+    seen_slugs: set[str] = set()
+    preferred = list(criteria.get("neighborhoods_preferred") or [])
+    around = list(
+        criteria.get("neighborhoods_around")
+        or neighborhoods_around_named(preferred, list(criteria.get("neighborhoods_nearby") or []))
+    )
+    for hood in preferred + around:
+        slug = _HOOD_ZILLOW_SLUG.get(hood)
+        if not slug or slug in seen_slugs:
+            continue
+        seen_slugs.add(slug)
+        searches.append(
+            (f"{hood} rentals", f"https://www.zillow.com/{slug}/rentals/0-{max_price}_mp/")
+        )
+        if len(seen_slugs) >= 12:
+            break
+    return searches
+
+
+SEARCH_CRITERIA = _LazyMapping(get_search_criteria)
+LOCATION_PREFERENCES = _LazyMapping(get_location_preferences)
+FACEBOOK_MARKETPLACE_SEARCHES = _LazySeq(facebook_marketplace_searches)
+ZILLOW_SEARCHES = _LazySeq(zillow_searches)
+CRAIGSLIST_SEARCHES = _LazySeq(craigslist_search_urls)

@@ -137,18 +137,22 @@ def _classify_location_tier(
 
     for tier_name in _LOCATION_TIER_ORDER:
         cfg = LOCATION_PREFERENCES["tiers"][tier_name]
+        terms = cfg["terms"]
+        distinctive = tuple(
+            term for term in terms if " " in term or term.isdigit() or len(term) >= 7
+        )
         if _location_match(
-            cfg["terms"],
+            terms,
             neighborhood=hood,
             title=tit,
             url=link,
             full_text="",
         ) or _location_match(
-            cfg["terms"],
+            distinctive or terms,
             neighborhood="",
             title="",
             url="",
-            full_text=text if tier_name == "soma_adjacent" else "",
+            full_text=text,
         ):
             return tier_name, cfg["boost"], cfg["flag"]
 

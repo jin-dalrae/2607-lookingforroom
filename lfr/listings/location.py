@@ -105,6 +105,13 @@ _SF_PRIMARY_MARKERS = (
     "inner mission",
     "russian hill",
     "north beach",
+    "telegraph hill",
+    "nob hill",
+    "union square",
+    "tenderloin",
+    "japantown",
+    "lower haight",
+    "alamo square",
     "sunset",
     "richmond district",
     "outer richmond",
@@ -370,12 +377,13 @@ def is_far_east_bay_location(
     rental_location: str = "",
 ) -> bool:
     """True when the listing's actual location is far East Bay (e.g. Pittsburg)."""
+    # Stockton St / similar SF streets must not count as Stockton, CA.
+    if has_sf_primary_signal(primary) or has_sf_primary_signal((rental_location or "").lower()):
+        return False
     checks = [rental_location, primary]
     for blob in checks:
         if blob and mentions_any_place(blob, FAR_EAST_BAY_EXCLUDE):
             return True
-    if has_sf_primary_signal(primary):
-        return False
     if full and mentions_any_place(full, FAR_EAST_BAY_EXCLUDE):
         return True
     return False
@@ -413,6 +421,82 @@ def is_config_excluded_location(row: dict[str, Any]) -> bool:
     return False
 
 
+NY_CITY_TERMS = (
+    "new york",
+    "nyc",
+    "manhattan",
+    "brooklyn",
+    "queens",
+    "bronx",
+    "staten island",
+    "harlem",
+    "astoria",
+    "bushwick",
+    "williamsburg",
+    "bed-stuy",
+    "bedford-stuyvesant",
+    "long island city",
+    "park slope",
+    "greenpoint",
+    "jackson heights",
+    "sunnyside",
+    "flushing",
+    "ronkonkoma",
+    "hempstead",
+    "woodhaven",
+    "long island",
+    "nassau",
+    "suffolk",
+    "upper east side",
+    "upper west side",
+    "east village",
+    "west village",
+)
+
+_NY_CITY_LABELS = frozenset({
+    "new york",
+    "nyc",
+    "manhattan",
+    "brooklyn",
+    "queens",
+    "bronx",
+    "harlem",
+    "astoria",
+    "bushwick",
+    "williamsburg",
+    "ronkonkoma",
+    "hempstead",
+    "woodhaven",
+    "long island",
+})
+
+
+def is_new_york_location(
+    *,
+    primary: str = "",
+    rental_location: str = "",
+    city: str = "",
+    neighborhood: str = "",
+    url: str = "",
+) -> bool:
+    """True when the listing is in New York, not San Francisco."""
+    city_low = (city or "").strip().lower()
+    hood_low = (neighborhood or "").strip().lower()
+    if city_low in _NY_CITY_LABELS or hood_low in _NY_CITY_LABELS:
+        return True
+    if city_low.endswith(", ny") or hood_low.endswith(", ny"):
+        return True
+    url_low = (url or "").lower()
+    if any(part in url_low for part in ("/ny/", "-ny-", "_ny_", "new-york", "brooklyn", "manhattan")):
+        if "san-francisco" not in url_low and "san francisco" not in url_low:
+            return True
+    blobs = (city_low, hood_low, (rental_location or "").lower(), (primary or "").lower())
+    for blob in blobs:
+        if blob and mentions_any_place(blob, NY_CITY_TERMS):
+            return True
+    return False
+
+
 _OAKLAND_ONLY_TERMS = (
     "oakland",
     "rockridge",
@@ -444,6 +528,13 @@ def is_san_francisco_location(
     url: str = "",
 ) -> bool:
     """True when listing is in San Francisco city (whole city OK)."""
+    if is_new_york_location(
+        primary=primary,
+        rental_location=rental_location,
+        city=city,
+        url=url,
+    ):
+        return False
     if is_south_san_francisco_city(
         primary=primary,
         rental_location=rental_location,
@@ -451,6 +542,8 @@ def is_san_francisco_location(
     ):
         return False
     city_low = (city or "").strip().lower()
+    if city_low in ("oakland", "berkeley", "emeryville", "daly city"):
+        return False
     if city_low in ("san francisco", "sf"):
         return True
     if has_sf_primary_signal(primary):
@@ -599,9 +692,17 @@ def is_allowed_location(row: dict[str, Any]) -> bool:
 
 def is_excluded_location(row: dict[str, Any]) -> bool:
     """Any location that should never appear in the apply queue."""
+    ctx = listing_location_context(row)
+    if is_new_york_location(
+        primary=ctx["primary"],
+        rental_location=ctx["rental_location"],
+        city=ctx.get("city") or "",
+        neighborhood=ctx.get("neighborhood") or str(row.get("neighborhood") or ""),
+        url=ctx.get("url") or str(row.get("url") or ""),
+    ):
+        return True
     if is_config_excluded_location(row):
         return True
-    ctx = listing_location_context(row)
     if is_far_east_bay_location(
         primary=ctx["primary"],
         full=ctx["full"],
@@ -618,8 +719,18 @@ _SEARCH_AREA_LABELS: dict[str, str] = {
     "sf room rent": "San Francisco",
     "sf room available": "San Francisco",
     "sf bedroom rent": "San Francisco",
+    "sf 1 bedroom": "San Francisco",
+    "sf 1br 1ba": "San Francisco",
+    "sf 2br 2ba room": "San Francisco",
+    "sf 3br 2ba room": "San Francisco",
+    "sf 3br 3ba room": "San Francisco",
     "sf sublet": "San Francisco",
     "sf roommate": "San Francisco",
+    "chinatown room": "Chinatown",
+    "hayes valley room": "Hayes Valley",
+    "mission room": "Mission",
+    "soma room": "SOMA",
+    "north beach room": "North Beach",
     # Legacy labels (no longer scouted / not allowed zones)
     "south sf room": "South San Francisco",
     "west oakland room": "West Oakland",
@@ -629,6 +740,41 @@ _SEARCH_AREA_LABELS: dict[str, str] = {
 
 _DISPLAY_AREA_TO_ZONE: dict[str, str] = {
     "San Francisco": "san_francisco",
+    "Chinatown": "san_francisco",
+    "North Beach": "san_francisco",
+    "Hayes Valley": "san_francisco",
+    "Mission": "san_francisco",
+    "Mission District": "san_francisco",
+    "Inner Mission": "san_francisco",
+    "SOMA": "san_francisco",
+    "South of Market": "san_francisco",
+    "South Beach": "san_francisco",
+    "Financial District": "san_francisco",
+    "Nob Hill": "san_francisco",
+    "Russian Hill": "san_francisco",
+    "Telegraph Hill": "san_francisco",
+    "Civic Center": "san_francisco",
+    "Union Square": "san_francisco",
+    "Tenderloin": "san_francisco",
+    "Japantown": "san_francisco",
+    "Lower Haight": "san_francisco",
+    "Alamo Square": "san_francisco",
+    "Western Addition": "san_francisco",
+    "Fillmore": "san_francisco",
+    "Duboce Triangle": "san_francisco",
+    "Mission Dolores": "san_francisco",
+    "Potrero Hill": "san_francisco",
+    "Bernal Heights": "san_francisco",
+    "Castro": "san_francisco",
+    "Noe Valley": "san_francisco",
+    "Mission Bay": "san_francisco",
+    "Embarcadero": "san_francisco",
+    "Rincon Hill": "san_francisco",
+    "Yerba Buena": "san_francisco",
+    "Fisherman's Wharf": "san_francisco",
+    "Downtown SF": "san_francisco",
+    "Jackson Square": "san_francisco",
+    "Van Ness": "san_francisco",
     # South SF / Oakland / Emeryville deliberately omitted — not allowed zones
 }
 

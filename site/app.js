@@ -3,10 +3,15 @@ const state = {
   tab: "to_apply",
   search: "",
   source: "all",
+  bath: "all",
   maxPrice: "",
 
   likedOnly: false,
   memoOnly: false,
+  multiRoomOnly: false,
+  findIds: null,
+  findNote: "",
+  findQuery: "",
   sortKey: "score",
   sortDir: -1,
   apiOnline: false,
@@ -14,12 +19,20 @@ const state = {
   apiHasLike: false,
   apiHasDelete: false,
   apiHasReplied: false,
+  apiHasFind: false,
   lastClickedId: null,
   page: 1,
   unlikedThisSession: new Set(),
+  userId: "",
+  users: [],
 };
 
 const PAGE_SIZE = 10;
+const USER_STORAGE_KEY = "lfr-active-user";
+
+function scopedKey(base) {
+  return state.userId ? `${base}:${state.userId}` : base;
+}
 
 const LIKED_STORAGE_KEY = "queue-liked-ids";
 const SKIPPED_STORAGE_KEY = "queue-skipped-ids";
@@ -43,10 +56,17 @@ const els = {
   search: document.getElementById("filter-search"),
   status: document.getElementById("filter-status"),
   source: document.getElementById("filter-source"),
+  bath: document.getElementById("filter-bath"),
   maxPrice: document.getElementById("filter-price"),
 
   likedOnly: document.getElementById("filter-liked"),
   memoOnly: document.getElementById("filter-memo"),
+  multiRoom: document.getElementById("filter-multiroom"),
+  findForm: document.getElementById("find-form"),
+  findQuery: document.getElementById("find-query"),
+  findBtn: document.getElementById("find-btn"),
+  findClear: document.getElementById("find-clear"),
+  findStatus: document.getElementById("find-status"),
   rowCount: document.getElementById("row-count"),
   apiHint: document.getElementById("api-hint"),
   updatedHint: document.getElementById("updated-hint"),
@@ -107,6 +127,23 @@ function apiBase() {
   return window.location.origin;
 }
 
+function apiHeaders(extra) {
+  const headers = { ...(extra || {}) };
+  if (state.userId) headers["X-LFR-User"] = state.userId;
+  return headers;
+}
+
+async function apiFetch(path, options = {}) {
+  const base = apiBase();
+  if (!base) throw new Error("API offline");
+  const { headers: extraHeaders, ...rest } = options;
+  return fetch(`${base}${path}`, {
+    credentials: "same-origin",
+    ...rest,
+    headers: apiHeaders(extraHeaders),
+  });
+}
+
 async function checkApi() {
   const base = apiBase();
   if (!base) {
@@ -116,10 +153,11 @@ async function checkApi() {
     state.apiHasLike = false;
     state.apiHasDelete = false;
     state.apiHasReplied = false;
+    state.apiHasFind = false;
     return;
   }
   try {
-    const res = await fetch(`${base}/api/health`, { method: "GET", credentials: "same-origin" });
+    const res = await apiFetch("/api/health", { method: "GET" });
     const json = await res.json();
     state.apiOnline = Boolean(json.ok);
     const endpoints = Array.isArray(json.endpoints) ? json.endpoints : [];
@@ -131,6 +169,9 @@ async function checkApi() {
     state.apiHasLike = endpoints.includes("like");
     state.apiHasDelete = endpoints.includes("delete");
     state.apiHasReplied = endpoints.includes("replied");
+    state.apiHasFind =
+      Boolean(json.findAvailable) ||
+      endpoints.includes("find");
   } catch (_) {
     state.apiOnline = false;
     state.apiHasScrape = false;
@@ -138,12 +179,13 @@ async function checkApi() {
     state.apiHasLike = false;
     state.apiHasDelete = false;
     state.apiHasReplied = false;
+    state.apiHasFind = false;
   }
 }
 
 function loadLocalLikes() {
   try {
-    const raw = localStorage.getItem(LIKED_STORAGE_KEY);
+    const raw = localStorage.getItem(scopedKey(LIKED_STORAGE_KEY));
     const parsed = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(parsed) ? parsed : []);
   } catch (_) {
@@ -152,7 +194,7 @@ function loadLocalLikes() {
 }
 
 function saveLocalLikes(ids) {
-  localStorage.setItem(LIKED_STORAGE_KEY, JSON.stringify([...ids]));
+  localStorage.setItem(scopedKey(LIKED_STORAGE_KEY), JSON.stringify([...ids]));
 }
 
 function mergeLocalLikes() {
@@ -164,7 +206,7 @@ function mergeLocalLikes() {
 
 function loadLocalSkips() {
   try {
-    const raw = localStorage.getItem(SKIPPED_STORAGE_KEY);
+    const raw = localStorage.getItem(scopedKey(SKIPPED_STORAGE_KEY));
     const parsed = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(parsed) ? parsed : []);
   } catch (_) {
@@ -173,7 +215,7 @@ function loadLocalSkips() {
 }
 
 function saveLocalSkips(ids) {
-  localStorage.setItem(SKIPPED_STORAGE_KEY, JSON.stringify([...ids]));
+  localStorage.setItem(scopedKey(SKIPPED_STORAGE_KEY), JSON.stringify([...ids]));
 }
 
 function hasEverApplied(item) {
@@ -239,7 +281,7 @@ function applyApplicationStatus(id, appStatus, isLocalAction = false) {
 
 function loadStatusCache() {
   try {
-    const raw = localStorage.getItem(STATUS_CACHE_KEY);
+    const raw = localStorage.getItem(scopedKey(STATUS_CACHE_KEY));
     const parsed = raw ? JSON.parse(raw) : {};
     return parsed && typeof parsed === "object" ? parsed : {};
   } catch (_) {
@@ -248,7 +290,7 @@ function loadStatusCache() {
 }
 
 function saveStatusCache(cache) {
-  localStorage.setItem(STATUS_CACHE_KEY, JSON.stringify(cache));
+  localStorage.setItem(scopedKey(STATUS_CACHE_KEY), JSON.stringify(cache));
 }
 
 function setCachedStatus(id, appStatus) {
@@ -338,7 +380,7 @@ async function syncApplicationStatuses() {
   const cache = loadStatusCache();
   if (!base || !state.apiOnline) return false;
   try {
-    const res = await fetch(`${base}/api/statuses`, { credentials: "same-origin" });
+    const res = await apiFetch("/api/statuses");
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok || !json.statuses) return false;
     const statuses = json.statuses || {};
@@ -377,7 +419,7 @@ function applySkipToItem(id) {
 
 function loadLocalDeletes() {
   try {
-    const raw = localStorage.getItem(DELETED_STORAGE_KEY);
+    const raw = localStorage.getItem(scopedKey(DELETED_STORAGE_KEY));
     const parsed = raw ? JSON.parse(raw) : [];
     return new Set(Array.isArray(parsed) ? parsed : []);
   } catch (_) {
@@ -386,7 +428,7 @@ function loadLocalDeletes() {
 }
 
 function saveLocalDeletes(ids) {
-  localStorage.setItem(DELETED_STORAGE_KEY, JSON.stringify([...ids]));
+  localStorage.setItem(scopedKey(DELETED_STORAGE_KEY), JSON.stringify([...ids]));
 }
 
 function loadLastClickedId() {
@@ -670,17 +712,25 @@ function searchBlob(item) {
     item.details,
     item.notes,
     item.groupId ? "group-" + item.groupId : "",
+    item.isMultiRoomHouse ? "multiple rooms in house" : "",
+    item.posterName ? "author-" + item.posterName : "",
     sourceLabel(item),
     statusTimelineParts(item).join(" "),
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
 function passesFilters(item) {
-  if (!isSearching() && state.tab !== "all" && item.queueStatus !== state.tab) return false;
+  if (!state.findIds && !isSearching() && state.tab !== "all" && item.queueStatus !== state.tab) return false;
 
   if (state.likedOnly && !item.liked && !state.unlikedThisSession.has(item.id)) return false;
   if (state.memoOnly && !item.notes) return false;
+  if (state.multiRoomOnly && !item.isMultiRoomHouse) return false;
+  if (state.findIds && !state.findIds.has(item.id)) return false;
   if (state.source !== "all" && item.source !== state.source) return false;
+  if (state.bath && state.bath !== "all") {
+    const privacy = String(item.bathPrivacy || "unknown");
+    if (privacy !== state.bath) return false;
+  }
   const maxPrice = state.maxPrice === "" ? null : Number(state.maxPrice);
   if (maxPrice !== null && Number.isFinite(maxPrice)) {
     const price = Number(item.price);
@@ -817,11 +867,20 @@ function addressCell(item) {
 function subLines(item) {
   const tags = [];
   if (item.posterName) tags.push(`<span class="tag-inline tag-poster">${esc(item.posterName)}</span>`);
+  if (item.layoutLabel) tags.push(`<span class="tag-inline">${esc(item.layoutLabel)}</span>`);
+  if (item.bathPrivacy === "private") tags.push(`<span class="tag-inline">Private bath</span>`);
+  if (item.isMultiRoomHouse) {
+    const rooms = Number(item.roomsInHouse) || 2;
+    const why = (item.houseRoomSources || []).join(" + ") || "same house";
+    tags.push(
+      `<span class="tag-inline tag-rooms same-house-btn" data-group-id="${esc(item.groupId || item.id)}" title="Detected from ${esc(why)}">🏠 ${rooms} rooms in this house</span>`
+    );
+  }
   if (item.transitTag) tags.push(`<span class="tag-inline">${esc(item.transitTag)}</span>`);
   if (item.isDead) {
     tags.push(`<span class="tag-inline" style="background:#fce8e6; color:#c5221f; padding:0.1rem 0.35rem; border-radius:4px; font-weight:700;">⚠️ DEAD / 404</span>`);
   }
-  if (item.isGrouped) {
+  if (item.isGrouped && !item.isMultiRoomHouse) {
     tags.push(`<span class="tag-inline same-house-btn" data-group-id="${esc(item.groupId)}" style="background:#f3e8ff; color:var(--purple); padding:0.1rem 0.35rem; border-radius:4px; font-weight:700; cursor:pointer;" title="Click to show all listings for this house">🏠 Same House (${item.duplicateCount} other${item.duplicateCount > 1 ? "s" : ""})</span>`);
   }
   
@@ -920,10 +979,11 @@ function renderRow(item, index) {
   const posted = item.postedLabel || "—";
   const scraped = item.scrapedLabel || "—";
   const moveIn = item.moveInLabel || "—";
+  const scoreWhy = (item.scoreWhy || "").trim();
   const score = item.scorePending
     ? '<span class="score-pending" title="Scoring not finished yet">Pending</span>'
     : Number.isFinite(Number(item.score))
-      ? esc(String(item.score))
+      ? `<span title="${esc(scoreWhy || "Match score 0–100")}">${esc(String(item.score))}</span>`
       : "—";
   const rowClass = [
     "data-row",
@@ -1027,7 +1087,9 @@ function render() {
   const startIndex = (state.page - 1) * PAGE_SIZE;
   els.tbody.innerHTML = items.length
     ? pageItems.map((item, i) => renderRow(item, startIndex + i + 1)).join("")
-    : '<tr><td colspan="14" class="hint">Nothing here. Try another status or loosen filters.</td></tr>';
+    : ((state.data?.listings || []).length === 0
+      ? '<tr><td colspan="14" class="hint">No listings yet for this account. Click Run Scrape to pull Craigslist, Facebook, and Zillow.</td></tr>'
+      : '<tr><td colspan="14" class="hint">Nothing here. Try another status or loosen filters.</td></tr>');
 
   const c = state.data?.counts || {};
   els.statToApply.textContent = String(c.toApply ?? 0);
@@ -1105,10 +1167,9 @@ async function applyListing(id) {
   const base = apiBase();
   if (base) {
     try {
-      const res = await fetch(`${base}/api/draft/${encodeURIComponent(id)}`, {
+      const res = await apiFetch(`/api/draft/${encodeURIComponent(id)}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "same-origin",
       });
       const json = await res.json().catch(() => ({}));
       if (res.ok && json.ok && json.mode === "gmail_draft") {
@@ -1156,7 +1217,7 @@ async function toggleLike(id) {
   }
 
   try {
-    const res = await fetch(`${base}/api/like/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`/api/like/${encodeURIComponent(id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ liked: next }),
@@ -1196,7 +1257,7 @@ async function markGone(id, { label = "Gone" } = {}) {
   }
 
   try {
-    const res = await fetch(`${base}/api/delete/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/delete/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     const local = loadLocalDeletes();
@@ -1235,7 +1296,7 @@ async function markScam(id) {
   }
 
   try {
-    const res = await fetch(`${base}/api/scam/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/scam/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     const local = loadLocalDeletes();
@@ -1281,7 +1342,7 @@ async function revertListing(id) {
   }
 
   try {
-    const res = await fetch(`${base}/api/revert/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/revert/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     
@@ -1317,7 +1378,7 @@ async function saveListingMemo(id, text) {
     return;
   }
   try {
-    const res = await fetch(`${base}/api/notes/${encodeURIComponent(id)}`, {
+    const res = await apiFetch(`/api/notes/${encodeURIComponent(id)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ notes: text }),
@@ -1345,7 +1406,7 @@ async function markVisited(id) {
   }
 
   try {
-    const res = await fetch(`${base}/api/toured/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/toured/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     
@@ -1375,7 +1436,7 @@ async function markContract(id) {
   }
 
   try {
-    const res = await fetch(`${base}/api/accepted/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/accepted/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
 
@@ -1410,7 +1471,7 @@ async function markSkipped(id) {
   }
 
   try {
-    const res = await fetch(`${base}/api/skip/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/skip/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) {
       if (res.status === 404 && json.error === "Not found") {
@@ -1448,7 +1509,7 @@ async function markReplied(id) {
     return;
   }
   try {
-    const res = await fetch(`${base}/api/replied/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/replied/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     const status = json.status || "replied";
@@ -1475,7 +1536,7 @@ async function markSent(id) {
     return;
   }
   try {
-    const res = await fetch(`${base}/api/sent/${encodeURIComponent(id)}`, { method: "POST" });
+    const res = await apiFetch(`/api/sent/${encodeURIComponent(id)}`, { method: "POST" });
     const json = await res.json();
     if (!json.ok) throw new Error(json.error || "Failed");
     const status = json.status || "sent";
@@ -1487,6 +1548,54 @@ async function markSent(id) {
   } catch (err) {
     toast(String(err.message || err), true);
   }
+}
+
+function setFindStatus(text, mode) {
+  if (!els.findStatus) return;
+  els.findStatus.textContent = text || "";
+  if (els.findForm) {
+    els.findForm.classList.toggle("is-finding", mode === "finding");
+    els.findForm.classList.toggle("has-results", mode === "results");
+  }
+  if (els.findClear) els.findClear.hidden = !state.findIds;
+}
+
+function clearFind() {
+  state.findIds = null;
+  state.findNote = "";
+  state.findQuery = "";
+  if (els.findQuery) els.findQuery.value = "";
+  if (els.findBtn) els.findBtn.disabled = false;
+  setFindStatus("", "");
+  state.page = 1;
+  render();
+}
+
+function runFind(event) {
+  if (event) event.preventDefault();
+  const question = (els.findQuery?.value || "").trim();
+  if (!question) {
+    clearFind();
+    return;
+  }
+  const listings = state.data?.listings || [];
+  if (!listings.length) {
+    toast("No listings loaded yet", true);
+    return;
+  }
+  const finder = window.LfrFind;
+  if (!finder) {
+    toast("Find is not loaded", true);
+    return;
+  }
+  const result = finder.findListings(question, listings);
+  const ids = result.ids || [];
+  state.findIds = new Set(ids);
+  state.findNote = result.note || "";
+  state.findQuery = question;
+  state.page = 1;
+  setFindStatus(result.note || "", ids.length ? "results" : "");
+  render();
 }
 
 function bindControls() {
@@ -1509,6 +1618,12 @@ function bindControls() {
     state.source = els.source.value;
     rerenderFromStart();
   });
+  if (els.bath) {
+    els.bath.addEventListener("change", () => {
+      state.bath = els.bath.value;
+      rerenderFromStart();
+    });
+  }
   els.maxPrice.addEventListener("input", () => {
     state.maxPrice = els.maxPrice.value;
     rerenderFromStart();
@@ -1521,6 +1636,29 @@ function bindControls() {
     state.memoOnly = els.memoOnly.checked;
     rerenderFromStart();
   });
+  if (els.multiRoom) {
+    els.multiRoom.addEventListener("change", () => {
+      state.multiRoomOnly = els.multiRoom.checked;
+      rerenderFromStart();
+    });
+  }
+  if (els.findForm) {
+    els.findForm.addEventListener("submit", (event) => {
+      runFind(event);
+    });
+  }
+  if (els.findQuery) {
+    els.findQuery.addEventListener("input", () => {
+      if (!els.findQuery.value.trim()) {
+        if (state.findIds) clearFind();
+        return;
+      }
+      runFind();
+    });
+  }
+  if (els.findClear) {
+    els.findClear.addEventListener("click", () => clearFind());
+  }
 
   els.table.querySelectorAll("thead th[data-sort]").forEach((th) => {
     th.addEventListener("click", () => {
@@ -1639,7 +1777,7 @@ async function checkScrapingStatus() {
   const base = apiBase();
   if (!base || !state.apiHasScrape) return;
   try {
-    const res = await fetch(`${base}/api/scrape/status`);
+    const res = await apiFetch("/api/scrape/status");
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`HTTP ${res.status}: ${text.slice(0, 100)}`);
@@ -1690,11 +1828,7 @@ function updateScrapeUI(isScraping, status, error) {
       
       setTimeout(async () => {
         try {
-          const dataRes = await fetch("./data.json?ts=" + Date.now());
-          state.data = await dataRes.json();
-          mergeLocalLikes();
-          applyLocalDeletes();
-          mergeLocalSkips();
+          await loadQueueData();
           await syncApplicationStatuses();
           render();
           statusEl.style.display = "none";
@@ -1725,7 +1859,7 @@ async function triggerScrape() {
     const btn = document.getElementById("scrape-btn");
     if (btn) btn.disabled = true;
     
-    const res = await fetch(`${base}/api/scrape`, { method: "POST" });
+    const res = await apiFetch("/api/scrape", { method: "POST" });
     const json = await res.json().catch(() => ({}));
     if (!res.ok || !json.ok) throw new Error(json.error || "Failed");
     
@@ -1737,18 +1871,129 @@ async function triggerScrape() {
   }
 }
 
-async function init() {
-  state.lastClickedId = loadLastClickedId();
-  const res = await fetch("./data.json?ts=" + Date.now());
-  state.data = await res.json();
+function fillUserSelect() {
+  const sel = document.getElementById("user-select");
+  if (!sel) return;
+  const users = state.users || [];
+  sel.innerHTML = users.map((user) => {
+    const budget = user.budget ? ` ($${user.budget})` : "";
+    const selected = user.id === state.userId ? " selected" : "";
+    return `<option value="${esc(user.id)}"${selected}>${esc(user.name)}${budget}</option>`;
+  }).join("");
+  sel.hidden = users.length === 0;
+}
+
+function applyQueuePayload(payload) {
+  state.data = payload;
+  if (payload?.userId) state.userId = payload.userId;
+  if (Array.isArray(payload?.users) && payload.users.length) {
+    state.users = payload.users;
+  }
+  fillUserSelect();
   mergeLocalLikes();
   applyLocalDeletes();
   mergeLocalSkips();
   applyStatusCache();
+  applyPageBranding();
+}
+
+async function loadUsers() {
+  let users = [];
+  let active = state.userId;
+  if (state.apiOnline) {
+    try {
+      const res = await apiFetch("/api/users");
+      const json = await res.json();
+      if (json.ok && Array.isArray(json.users)) {
+        users = json.users;
+        if (!active) active = json.active;
+      }
+    } catch (_) { /* fall through to static file */ }
+  }
+  if (!users.length) {
+    try {
+      const res = await fetch("./users.json?ts=" + Date.now());
+      if (res.ok) {
+        const json = await res.json();
+        users = json.users || [];
+        if (!active) active = json.active;
+      }
+    } catch (_) { /* ignore */ }
+  }
+  state.users = users;
+  if (active && users.some((user) => user.id === active)) {
+    state.userId = active;
+  } else if (users.length) {
+    state.userId = users[0].id;
+  }
+  if (state.userId) localStorage.setItem(USER_STORAGE_KEY, state.userId);
+  fillUserSelect();
+}
+
+async function loadQueueData() {
+  if (state.apiOnline) {
+    try {
+      const res = await apiFetch("/api/queue");
+      const json = await res.json();
+      if (json.ok && json.queue) {
+        applyQueuePayload(json.queue);
+        return;
+      }
+    } catch (_) { /* fall through */ }
+  }
+  const candidates = [];
+  if (state.userId) candidates.push(`./data-${state.userId}.json`);
+  candidates.push("./data.json");
+  for (const url of candidates) {
+    try {
+      const res = await fetch(`${url}?ts=${Date.now()}`);
+      if (!res.ok) continue;
+      applyQueuePayload(await res.json());
+      return;
+    } catch (_) { /* try next */ }
+  }
+  applyQueuePayload({
+    listings: [],
+    counts: {},
+    pageTitle: "Looking for Room",
+    users: state.users,
+    userId: state.userId,
+  });
+}
+
+async function switchUser(userId) {
+  if (!userId || userId === state.userId) return;
+  state.userId = userId;
+  localStorage.setItem(USER_STORAGE_KEY, userId);
+  if (state.apiOnline) {
+    try {
+      await apiFetch("/api/users/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: userId }),
+      });
+    } catch (_) { /* still load local files */ }
+  }
+  await loadQueueData();
+  const synced = await syncApplicationStatuses();
+  if (!synced) applyStatusCache();
+  render();
+}
+
+async function init() {
+  state.lastClickedId = loadLastClickedId();
+  state.userId = localStorage.getItem(USER_STORAGE_KEY) || "";
   await checkApi();
+  await loadUsers();
+  await loadQueueData();
   const synced = await syncApplicationStatuses();
   if (!synced) applyStatusCache();
   bindControls();
+
+  const userSelect = document.getElementById("user-select");
+  if (userSelect) {
+    userSelect.addEventListener("change", () => switchUser(userSelect.value));
+  }
 
   const scrapeBtn = document.getElementById("scrape-btn");
   if (scrapeBtn) {

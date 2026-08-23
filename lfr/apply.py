@@ -26,6 +26,8 @@ from lfr.db import (
 from lfr.rank import _move_in_from_flags, _size_from_flags
 
 from lfr.paths import PROJECT_ROOT
+from lfr.users import current_user, profile_dict
+
 PROFILE_PATH = PROJECT_ROOT / "profile.yaml"
 
 
@@ -36,18 +38,20 @@ UTILITIES_INCLUDED_RE = re.compile(
 
 
 def load_profile(path: Path | None = None) -> dict[str, Any]:
-    """Load applicant profile from profile.yaml."""
-    profile_path = path or PROFILE_PATH
-    if not profile_path.exists():
-        raise FileNotFoundError(
-            f"Profile not found: {profile_path}. "
-            "Copy profile.example.yaml to profile.yaml and fill in your details."
-        )
-    with profile_path.open(encoding="utf-8") as handle:
-        data = yaml.safe_load(handle) or {}
-    if not isinstance(data, dict):
-        raise ValueError(f"Invalid profile format in {profile_path}")
-    return data
+    """Load the active user's profile (or an explicit YAML path)."""
+    if path is not None:
+        profile_path = path
+        if not profile_path.exists():
+            raise FileNotFoundError(
+                f"Profile not found: {profile_path}. "
+                "Copy profile.example.yaml to profile.yaml and fill in your details."
+            )
+        with profile_path.open(encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+        if not isinstance(data, dict):
+            raise ValueError(f"Invalid profile format in {profile_path}")
+        return data
+    return profile_dict(current_user().raw)
 
 
 def _utilities_mentioned(listing: dict[str, Any]) -> bool:
