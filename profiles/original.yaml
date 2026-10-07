@@ -1,21 +1,62 @@
 id: original
 name: August search
-page_title: August housing search to Aug 18
-search_preset: original
-email: ""
+page_title: SF shared-house search · $800–$1,100
+email: ''
 email_subject: Room Rental Inquiry
-phone: ""
-move_in: late July through August 18, 2026
-budget: 1300
-deadline: Aug 18
-append_hold_question: true
+phone: ''
+move_in: Date to be confirmed
+budget: 1100
+append_hold_question: false
+message_template: 'Hi! I''m interested in your room listing.
 
-message_template: |
-  Hi! I'm interested in your room listing.
 
-  I can move in between August 1 and August 18, 2026. My budget is around $1300/month.
+  I''m looking for a private room in a shared house in central San Francisco, ideally
+  closer to downtown on flat streets. My budget is $800–$1100/month.
 
-follow_up_template: |
-  Hi! I wanted to follow up on my room inquiry. I'm still very interested.
+
+  Is the room still available, and what move-in dates would work?
+
+  '
+follow_up_template: 'Hi! I wanted to follow up on my room inquiry. I''m still very
+  interested.
+
 
   Is the room still available? Thank you!
+
+  '
+search:
+  max_rent: 1100
+  price_focus_min: 800
+  price_focus_max: 1100
+  price_match_max: 1100
+  min_acceptable_sqft: 100
+  nice_to_have_sqft: 150
+  require_move_in_window: false
+  use_filter_not_score: true
+  current_location: San Francisco
+  scout_apartments: false
+  others_ok: true
+  neighborhoods_preferred:
+  - SOMA
+  - Hayes Valley
+  - Mission
+  - North Beach
+  neighborhoods_nearby:
+  - Financial District
+  - Civic Center
+  - South Beach
+  - Union Square
+  - Tenderloin
+  - Chinatown
+  room_layouts: []
+  room_type_note: Private bedroom in a shared house; shared kitchen and bathroom are
+    OK. Reject shared bedrooms, SROs, and curtain rooms.
+  location_note: Same central SF search area as Haneul, without a Chinatown focus.
+    Prefer closer to downtown and flat streets; avoid hilly blocks and steep walking
+    routes. Chinatown is included as a nearby option, not a priority. Check the actual
+    address and walking route for slope; neighborhood names alone do not establish
+    flatness.
+  room_type: private_bedroom_or_small_shared_house
+  wants: A private bedroom in a shared house in San Francisco for $800–$1100/month,
+    closer to downtown, on flat streets with no steep walking routes. No Chinatown
+    emphasis.

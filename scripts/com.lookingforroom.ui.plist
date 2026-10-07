@@ -10,6 +10,8 @@
     <string>-m</string>
     <string>http.server</string>
     <string>__STATIC_PORT__</string>
+    <string>--bind</string>
+    <string>127.0.0.1</string>
     <string>--directory</string>
     <string>site</string>
   </array>
